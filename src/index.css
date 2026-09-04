@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: #090909;
+    color: #E8E6DF;
+    letter-spacing: -0.01em;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: 'Barlow Condensed', 'Syne', sans-serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* Massive Editorial Typography Utilities */
+.font-condensed {
+  font-family: 'Barlow Condensed', sans-serif;
+}
+
+.font-syne {
+  font-family: 'Syne', sans-serif;
+}
+
+/* Outlined Editorial Stroke Text */
+.text-stroke-bone {
+  -webkit-text-stroke: 1.5px #E8E6DF;
+  color: transparent;
+}
+
+.text-stroke-bone-thin {
+  -webkit-text-stroke: 1px rgba(232, 230, 223, 0.6);
+  color: transparent;
+}
+
+.text-stroke-red {
+  -webkit-text-stroke: 1px #FF5A5F;
+  color: transparent;
+}
+
+/* Vertical Edge Text */
+.writing-vertical-rl {
+  writing-mode: vertical-rl;
+}
+
+.writing-vertical-lr {
+  writing-mode: vertical-lr;
+}
+
+/* Custom Swiss Engineering Grid */
+.bg-swiss-grid {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+.bg-swiss-grid-dense {
+  background-size: 20px 20px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+}
+
+/* Custom sleek scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #090909;
+}
+::-webkit-scrollbar-thumb {
+  background: #202020;
+  border-radius: 0px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #FF5A5F;
+}
+
+/* Restrained Signal Red Line */
+.signal-red-line {
+  height: 1px;
+  background: #FF5A5F;
+}
+

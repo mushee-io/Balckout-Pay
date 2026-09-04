@@ -1,0 +1,78 @@
+{
+  "manifest-version": "1",
+  "compiler-version": "0.34.0",
+  "language-version": "0.26.0",
+  "runtime-version": "0.19.0",
+  "compiler": {
+    "type": "directory",
+    "contract-info.json": {
+      "type": "file",
+      "size": 3434,
+      "hash": "5318f550938f2e0cac9c3a97e491cb1a26c1f4257f6ac27d7d7e4c5da326f85f"
+    }
+  },
+  "contract": {
+    "type": "directory",
+    "index.d.ts": {
+      "type": "file",
+      "size": 3829,
+      "hash": "870426bb1b733a1b0e335ff30bd56baecf576e83b04b6fd353f9f507d2f37058"
+    },
+    "index.js": {
+      "type": "file",
+      "size": 33317,
+      "hash": "1a66ee7015ebcea45a02862a366a9f320729b3bfdf3cd193b1d87601965b9207"
+    },
+    "index.js.map": {
+      "type": "file",
+      "size": 1698,
+      "hash": "990302410ee7b8026f9f9219e1c7b32b57049804907d54d7231a1a698780ae4a"
+    }
+  },
+  "zkir": {
+    "type": "directory",
+    "prove_income_threshold.bzkir": {
+      "type": "file",
+      "size": 188,
+      "hash": "457960cf97a36766e599cb262ea50a979857322383cd959cb3f484d1bd986ff2"
+    },
+    "prove_income_threshold.zkir": {
+      "type": "file",
+      "size": 3092,
+      "hash": "58261abd42733a92a8b7a38fdf5152d6ae8287451953eac4c827c22c5e265dbd"
+    },
+    "register_verification_request.bzkir": {
+      "type": "file",
+      "size": 151,
+      "hash": "0305338d8eb0173962e1f9981d53e9dc10fc7a05d0feeb81be3b6ba1346bafa4"
+    },
+    "register_verification_request.zkir": {
+      "type": "file",
+      "size": 2447,
+      "hash": "208df8f0a5d74a4c6328d833faf37e9930e05b3209eeb9d7eecc4dfabd4974b8"
+    }
+  },
+  "keys": {
+    "type": "directory",
+    "prove_income_threshold.prover": {
+      "type": "file",
+      "size": 2818001,
+      "hash": "781082b55f30fc1576670875e3452dbec006211e2267def2e5576571eb48dce5"
+    },
+    "prove_income_threshold.verifier": {
+      "type": "file",
+      "size": 2119,
+      "hash": "c01ae7d00e9f909e03f95044dcb9fe786c8150f398b37a69181d26e794fbada8"
+    },
+    "register_verification_request.prover": {
+      "type": "file",
+      "size": 279323,
+      "hash": "88555b4b9f81d7c56dad14037602a3d1f8a08dd792016323874c316b1ef42435"
+    },
+    "register_verification_request.verifier": {
+      "type": "file",
+      "size": 1351,
+      "hash": "9b6b17eef1c0559e75a86b1973b32a0ad75ad61227dc051a2ff765639c8ebf11"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Blackout Pay",
+  "description": "Blackout — Private Eligibility Protocol on Midnight Network. Prove you qualify. Reveal nothing else. Mathematical zero-knowledge threshold verification with zero salary disclosure.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
