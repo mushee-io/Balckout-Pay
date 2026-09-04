@@ -8,6 +8,7 @@ export type CurrencyCode = 'GBP' | 'USD' | 'EUR';
 export type ExecutionMode = 'LIVE' | 'DEMO';
 
 export type MidnightNetwork = 
+  | 'Midnight Preview'
   | 'Midnight TestNet-02' 
   | 'Midnight DevNet' 
   | 'Midnight Local Sandbox';

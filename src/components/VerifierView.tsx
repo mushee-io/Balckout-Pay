@@ -13,6 +13,7 @@ import {
   FileCode
 } from 'lucide-react';
 import { VerificationRequest } from '../midnight/types';
+import { DEPLOYED_CONTRACT_ADDRESS } from '../midnight/zk-engine';
 
 interface VerifierViewProps {
   request: VerificationRequest | null;
@@ -71,7 +72,9 @@ export const VerifierView: React.FC<VerifierViewProps> = ({
         <div className="space-y-3 border-b border-white/[0.08] pb-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[10px] font-mono uppercase tracking-[0.2em]">
             <span className="text-[#FF5A5F] font-bold">[ MIDNIGHT VERIFICATION ATTESTATION ]</span>
-            <span className="text-[#8A8882]">CONTRACT: 0x3a91c84f29e1d87e55b3c4118029d3ba9f018e44</span>
+            <span className="text-[#8A8882]">
+              CONTRACT: {DEPLOYED_CONTRACT_ADDRESS || 'UNSET (PENDING ON-CHAIN DEPLOYMENT)'}
+            </span>
           </div>
           <h1 className="text-3xl sm:text-5xl font-condensed font-extrabold uppercase text-[#E8E6DF]">
             VERIFIER AUDIT RECEIPT.

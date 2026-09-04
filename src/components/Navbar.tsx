@@ -8,6 +8,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { WalletState } from '../midnight/types';
+import { DEPLOYED_CONTRACT_ADDRESS } from '../midnight/zk-engine';
 
 interface NavbarProps {
   activeTab: string;
@@ -20,6 +21,7 @@ interface NavbarProps {
   onOpenDevDrawer: () => void;
   onOpenAuditor: () => void;
   onOpenTests: () => void;
+  onOpenDeployModal?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -33,6 +35,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenDevDrawer,
   onOpenAuditor,
   onOpenTests,
+  onOpenDeployModal,
 }) => {
   const navItems = [
     { id: 'prove', label: 'PROVE' },
@@ -49,13 +52,36 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span className="flex items-center gap-1.5">
             <span className={`w-1.5 h-1.5 ${wallet.mode === 'LIVE' ? 'bg-[#00FF66] animate-pulse' : 'bg-[#FFB800]'}`}></span>
             <span className={wallet.mode === 'LIVE' ? 'text-[#00FF66] font-bold' : 'text-[#FFB800]'}>
-              {wallet.mode === 'LIVE' ? 'NETWORK: MIDNIGHT TESTNET-02 (LIVE ON-CHAIN)' : 'MODE: DEMO SANDBOX — NO ON-CHAIN TRANSACTION'}
+              {wallet.mode === 'LIVE' ? `NETWORK: ${wallet.network.toUpperCase()} (LIVE ON-CHAIN)` : 'MODE: DEMO SANDBOX — NO ON-CHAIN TRANSACTION'}
             </span>
           </span>
           <span className="hidden md:inline text-white/30">|</span>
-          <span className="hidden md:inline text-[#8A8882]">CONTRACT: 0x3a91c8...8e44</span>
+          <div className="hidden md:flex items-center gap-1.5">
+            <span className="text-[#8A8882]">CONTRACT:</span>
+            {DEPLOYED_CONTRACT_ADDRESS ? (
+              <span className="text-[#00FF66] font-bold">
+                {`${DEPLOYED_CONTRACT_ADDRESS.slice(0, 10)}...${DEPLOYED_CONTRACT_ADDRESS.slice(-4)}`}
+              </span>
+            ) : (
+              <button
+                onClick={onOpenDeployModal}
+                className="text-[#FFB800] hover:text-[#FFA000] underline font-bold cursor-pointer inline-flex items-center gap-1"
+                title="Click to deploy income_verifier.compact via Lace wallet"
+              >
+                [UNSET — CLICK TO DEPLOY ON-CHAIN]
+              </button>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {!DEPLOYED_CONTRACT_ADDRESS && (
+            <button
+              onClick={onOpenDeployModal}
+              className="text-[#00E5FF] hover:text-[#80F4FF] font-bold cursor-pointer uppercase flex items-center gap-1"
+            >
+              🚀 Deploy Contract
+            </button>
+          )}
           <button
             onClick={() => onConnectWallet(wallet.mode === 'LIVE' ? 'DEMO' : 'LIVE')}
             className="text-[#8A8882] hover:text-[#E8E6DF] underline uppercase cursor-pointer"

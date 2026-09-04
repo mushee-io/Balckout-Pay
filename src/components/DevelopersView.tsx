@@ -12,6 +12,7 @@ import {
   Code2,
   Sparkles
 } from 'lucide-react';
+import { DEPLOYED_CONTRACT_ADDRESS } from '../midnight/zk-engine';
 
 export const DevelopersView: React.FC = () => {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
@@ -95,7 +96,7 @@ import { BlackoutClient } from '@blackout/protocol-sdk'; // Wave 3 Preview
 // Initialize client with Midnight Network provider
 const blackout = new BlackoutClient({
   network: 'midnight-testnet-02',
-  contractAddress: '0x3a91c84f29e1d87e55b3c4118029d3ba9f018e44'
+  contractAddress: ${DEPLOYED_CONTRACT_ADDRESS ? `'${DEPLOYED_CONTRACT_ADDRESS}'` : "process.env.MIDNIGHT_CONTRACT_ADDRESS /* unset until deployment */"}
 });
 
 // 1. Verifier Application creates a request

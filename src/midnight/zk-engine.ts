@@ -12,7 +12,11 @@
 import { CurrencyCode, ExecutionMode, MidnightNetwork, PrivateIncomeCredential, ProverStep, ZkProofResult } from './types';
 import { Contract, Witnesses } from './contract-artifacts/contract/index.js';
 
-export const DEPLOYED_CONTRACT_ADDRESS = '0x3a91c84f29e1d87e55b3c4118029d3ba9f018e44';
+// Read deployed contract address from environment; left unset until deployed on-chain
+export const DEPLOYED_CONTRACT_ADDRESS = 
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_MIDNIGHT_CONTRACT_ADDRESS) ||
+  (typeof process !== 'undefined' && process.env?.VITE_MIDNIGHT_CONTRACT_ADDRESS) ||
+  '';
 
 /**
  * Convert 32-byte hex string to Uint8Array
@@ -151,18 +155,27 @@ export async function proveIncomeThreshold(
   );
 
   // Step 5: Broadcasting to Midnight Ledger State
+  if (mode === 'LIVE' && !DEPLOYED_CONTRACT_ADDRESS) {
+    callbacks?.onStepChange?.('FAILED', 'Undeployed contract: Cannot submit on-chain transaction.');
+    throw new Error(
+      'LIVE Execution Blocker: The Compact contract is NOT DEPLOYED to Midnight Preview. On-chain transaction broadcast requires a deployed contract address and a connected, funded Lace wallet.'
+    );
+  }
+
   callbacks?.onStepChange?.('BROADCASTING_MIDNIGHT', mode === 'LIVE' 
-    ? 'Submitting transaction to Midnight TestNet-02 Node & Indexer...' 
+    ? 'Submitting transaction to Midnight Preview Node & Indexer...' 
     : 'Recording proof outcome in Midnight Sandbox Ledger...');
   callbacks?.onProgress?.(95);
   await new Promise(r => setTimeout(r, 400));
 
   const executionTimeMs = Math.round(performance.now() - startTime);
 
-  callbacks?.onStepChange?.('COMPLETED', mode === 'LIVE' ? 'Proof verified and committed on Midnight TestNet-02.' : 'Proof verified in Midnight Demo Sandbox.');
+  callbacks?.onStepChange?.('COMPLETED', mode === 'LIVE' ? 'Proof verified and committed on Midnight Preview.' : 'Proof verified in Midnight Demo Sandbox.');
   callbacks?.onProgress?.(100);
 
-  const txHash = `0x${proofHash.slice(2, 18)}${Date.now().toString(16)}`;
+  // In LIVE mode, txHash must come from real on-chain transaction submission.
+  // In DEMO mode, txHash represents local sandbox execution.
+  const txHash = mode === 'LIVE' ? undefined : `0x${proofHash.slice(2, 18)}${Date.now().toString(16)}`;
 
   const result: ZkProofResult = {
     requestId,

@@ -13,6 +13,8 @@ import { InteractiveDemoModal } from './components/InteractiveDemoModal';
 import { PrivacyAuditor } from './components/PrivacyAuditor';
 import { DeveloperDrawer } from './components/DeveloperDrawer';
 import { TestSuiteModal } from './components/TestSuiteModal';
+import { WalletModal } from './components/WalletModal';
+import { ContractDeploymentModal } from './components/ContractDeploymentModal';
 
 import { 
   ExecutionMode,
@@ -65,6 +67,11 @@ export default function App() {
   const [isAuditorOpen, setIsAuditorOpen] = useState(false);
   const [isDevDrawerOpen, setIsDevDrawerOpen] = useState(false);
   const [isTestsOpen, setIsTestsOpen] = useState(false);
+  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [isDeployModalOpen, setIsDeployModalOpen] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.location.search.includes('action=deploy') || window.location.hash.includes('deploy');
+  });
 
   // Sync Hash Route with URL
   useEffect(() => {
@@ -131,6 +138,9 @@ export default function App() {
       const msg = err instanceof Error ? err.message : 'Failed to connect wallet';
       setWalletError(msg);
       setWallet((prev) => ({ ...prev, isConnecting: false, error: msg }));
+      if (mode === 'LIVE') {
+        setIsWalletModalOpen(true);
+      }
     }
   };
 
@@ -177,6 +187,7 @@ export default function App() {
         onOpenDevDrawer={() => setIsDevDrawerOpen(true)}
         onOpenAuditor={() => setIsAuditorOpen(true)}
         onOpenTests={() => setIsTestsOpen(true)}
+        onOpenDeployModal={() => setIsDeployModalOpen(true)}
       />
 
       {/* Main Content View Switcher */}
@@ -354,6 +365,27 @@ export default function App() {
         <TestSuiteModal
           isOpen={isTestsOpen}
           onClose={() => setIsTestsOpen(false)}
+        />
+      )}
+
+      {isWalletModalOpen && (
+        <WalletModal
+          isOpen={isWalletModalOpen}
+          onClose={() => setIsWalletModalOpen(false)}
+          wallet={wallet}
+          onConnectLive={() => handleConnectWallet('LIVE')}
+          onSwitchToDemo={() => handleConnectWallet('DEMO')}
+          errorMessage={walletError}
+        />
+      )}
+
+      {isDeployModalOpen && (
+        <ContractDeploymentModal
+          isOpen={isDeployModalOpen}
+          onClose={() => setIsDeployModalOpen(false)}
+          onDeploymentComplete={(contractAddress, txHash) => {
+            handleConnectWallet('LIVE');
+          }}
         />
       )}
     </div>
