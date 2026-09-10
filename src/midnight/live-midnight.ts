@@ -90,66 +90,109 @@ function readDustBalance(value: unknown): bigint {
   if (typeof value === 'object' && value !== null && 'balance' in value) {
     return readDustBalance((value as { balance: unknown }).balance);
   }
-  throw new Error('Lace returned an unreadable DUST balance for Midnight Preview.');
+  throw new Error('Connected wallet returned an unreadable DUST balance for Midnight Preview.');
 }
 
 async function requirePreviewDust(session: LaceSession): Promise<void> {
   if (session.networkId !== 'preview') {
-    throw new Error(`Blackout Pay LIVE is locked to Midnight Preview testnet; Lace is connected to "${session.networkId}".`);
+    throw new Error(`Blackout Pay LIVE is locked to Midnight Preview testnet; the connected wallet is on "${session.networkId}".`);
   }
   if (typeof session.wallet.getDustBalance !== 'function') {
-    throw new Error('Connected Lace API does not expose getDustBalance(). Update Lace and reconnect on Midnight Preview.');
+    throw new Error('Connected Midnight wallet does not expose getDustBalance(). Update the wallet and reconnect on Midnight Preview.');
   }
   const dust = readDustBalance(await session.wallet.getDustBalance());
   if (dust <= 0n) {
     throw new Error(
-      'Lace reports 0 DUST on Midnight Preview. Your tNIGHT is testnet funding, but a fee-paying testnet contract deployment needs generated DUST. Register/delegate the tNIGHT for DUST generation in Lace, wait until DUST is above 0, then retry.'
+      'Connected wallet reports 0 DUST on Midnight Preview. Register/designate tNIGHT for DUST generation, wait until DUST is above 0, then retry.'
     );
   }
 }
 
-/** A session-only provider: income witnesses never enter browser storage. */
+/**
+ * Blackout's generated Compact private state is exactly an empty object.
+ * The actual income and salt are provided only through witness callbacks and
+ * are never written to this provider or browser storage.
+ */
 function sessionPrivateStateProvider(): PrivateStateProvider<string, BlackoutPrivateState> {
   const states = new Map<string, BlackoutPrivateState>();
   const signingKeys = new Map<string, SigningKey>();
   let contractAddress = '';
   const key = (id: string) => `${contractAddress}:${id}`;
+
   return {
-    setContractAddress(address: ContractAddress) { contractAddress = String(address); },
-    async get(id) { return states.get(key(id)) ?? null; },
-    async set(id, state) { states.set(key(id), state); },
-    async remove(id) { states.delete(key(id)); },
-    async clear() { states.clear(); },
-    async setSigningKey(address, signingKey) { signingKeys.set(String(address), signingKey); },
-    async getSigningKey(address) { return signingKeys.get(String(address)) ?? null; },
-    async removeSigningKey(address) { signingKeys.delete(String(address)); },
-    async clearSigningKeys() { signingKeys.clear(); },
-    async exportPrivateStates() { throw new Error('Private witness export is disabled for Blackout Pay.'); },
-    async importPrivateStates() { throw new Error('Private witness import is disabled for Blackout Pay.'); },
-    async exportSigningKeys() { throw new Error('Signing-key export is disabled for Blackout Pay.'); },
-    async importSigningKeys() { throw new Error('Signing-key import is disabled for Blackout Pay.'); },
+    setContractAddress(address: ContractAddress) {
+      contractAddress = String(address);
+    },
+    async get(id) {
+      const scopedKey = key(id);
+      const existing = states.get(scopedKey);
+      if (existing !== undefined) return existing;
+
+      // BlackoutPrivateState is Record<string, never>, so it is safe and
+      // correct to reconstruct the empty state after refresh/reconnect.
+      if (id === BLACKOUT_PRIVATE_STATE_ID) {
+        const initialState: BlackoutPrivateState = {};
+        states.set(scopedKey, initialState);
+        return initialState;
+      }
+      return null;
+    },
+    async set(id, state) {
+      states.set(key(id), state);
+    },
+    async remove(id) {
+      states.delete(key(id));
+    },
+    async clear() {
+      states.clear();
+    },
+    async setSigningKey(address, signingKey) {
+      signingKeys.set(String(address), signingKey);
+    },
+    async getSigningKey(address) {
+      return signingKeys.get(String(address)) ?? null;
+    },
+    async removeSigningKey(address) {
+      signingKeys.delete(String(address));
+    },
+    async clearSigningKeys() {
+      signingKeys.clear();
+    },
+    async exportPrivateStates() {
+      throw new Error('Private witness export is disabled for Blackout Pay.');
+    },
+    async importPrivateStates() {
+      throw new Error('Private witness import is disabled for Blackout Pay.');
+    },
+    async exportSigningKeys() {
+      throw new Error('Signing-key export is disabled for Blackout Pay.');
+    },
+    async importSigningKeys() {
+      throw new Error('Signing-key import is disabled for Blackout Pay.');
+    },
   } as PrivateStateProvider<string, BlackoutPrivateState>;
 }
+
+// One provider instance is shared across deploy/register/prove calls. MidnightJS
+// scopes it to the current contract with setContractAddress(). Recreating this
+// provider for every operation caused valid call transactions to fail with
+// "No private state found at private state ID ...".
+const blackoutPrivateStateProvider = sessionPrivateStateProvider();
 
 async function providersFor(session: LaceSession) {
   const { wallet, configuration, addresses } = session;
   if (!configuration.indexerUri || !configuration.indexerWsUri) {
-    throw new Error('Lace did not provide the required Midnight Preview indexer endpoints.');
+    throw new Error('Connected Midnight wallet did not provide the required Preview indexer endpoints.');
   }
   if (!addresses.shieldedCoinPublicKey || !addresses.shieldedEncryptionPublicKey) {
-    throw new Error('Lace did not provide shielded coin and encryption public keys.');
+    throw new Error('Connected Midnight wallet did not provide shielded coin and encryption public keys.');
   }
   if (typeof wallet.getProvingProvider !== 'function') {
-    throw new Error('Lace does not expose DApp Connector v4 wallet-delegated proving. Update Lace and reconnect.');
+    throw new Error('Connected Midnight wallet does not expose DApp Connector v4 wallet-delegated proving.');
   }
 
   setNetworkId(session.networkId);
   const zkConfigProvider = new FetchZkConfigProvider(window.location.origin, fetch.bind(window));
-
-  // DApp Connector API v4 deprecates direct use of proverServerUri. Delegate
-  // proving through Lace so the wallet uses the user's configured Preview
-  // proving infrastructure (localhost:6300 in this test setup) while key
-  // material still comes from this Vercel origin.
   const provingProvider = await wallet.getProvingProvider(zkConfigProvider.asKeyMaterialProvider());
   const proofProvider = createProofProvider(provingProvider);
 
@@ -161,7 +204,7 @@ async function providersFor(session: LaceSession) {
         const result = await wallet.balanceUnsealedTransaction(toHex(tx.serialize()), { payFees: true });
         return ledger.Transaction.deserialize('signature', 'proof', 'binding', fromHex(result.tx)) as ledger.FinalizedTransaction;
       } catch (error: unknown) {
-        throw new Error(safeMidnightError(error, 'Lace failed to balance the Midnight Preview testnet transaction.'));
+        throw new Error(safeMidnightError(error, 'Connected wallet failed to balance the Midnight Preview testnet transaction.'));
       }
     },
   };
@@ -172,13 +215,13 @@ async function providersFor(session: LaceSession) {
         await wallet.submitTransaction(toHex(tx.serialize()));
         return tx.identifiers()[0];
       } catch (error: unknown) {
-        throw new Error(safeMidnightError(error, 'Lace failed to submit the Midnight Preview testnet transaction.'));
+        throw new Error(safeMidnightError(error, 'Connected wallet failed to submit the Midnight Preview testnet transaction.'));
       }
     },
   };
 
   return {
-    privateStateProvider: sessionPrivateStateProvider(),
+    privateStateProvider: blackoutPrivateStateProvider,
     zkConfigProvider,
     proofProvider,
     publicDataProvider: indexerPublicDataProvider(configuration.indexerUri, configuration.indexerWsUri),
@@ -188,8 +231,13 @@ async function providersFor(session: LaceSession) {
 }
 
 function inactiveWitnesses(): BlackoutWitnesses {
-  const unavailable = () => { throw new Error('This contract operation requires a private income witness.'); };
-  return { get_private_monthly_income: unavailable, get_private_income_salt: unavailable };
+  const unavailable = () => {
+    throw new Error('This contract operation requires a private income witness.');
+  };
+  return {
+    get_private_monthly_income: unavailable,
+    get_private_income_salt: unavailable,
+  };
 }
 
 function witnessCallbacks(witness: PrivateIncomeWitness): BlackoutWitnesses {
@@ -202,7 +250,7 @@ function witnessCallbacks(witness: PrivateIncomeWitness): BlackoutWitnesses {
 
 export async function deployBlackoutContract() {
   const session = getActiveLaceSession();
-  if (!session) throw new Error('Connect Midnight Lace on Preview before deploying.');
+  if (!session) throw new Error('Connect a Midnight wallet on Preview before deploying.');
   try {
     await requirePreviewDust(session);
     const providers = await providersFor(session);
@@ -214,7 +262,10 @@ export async function deployBlackoutContract() {
     });
     activeContractAddress = String(deployed.deployTxData.public.contractAddress);
     persistContractAddress(activeContractAddress);
-    return { contractAddress: activeContractAddress, txId: String(deployed.deployTxData.public.txId) };
+    return {
+      contractAddress: activeContractAddress,
+      txId: String(deployed.deployTxData.public.txId),
+    };
   } catch (error: unknown) {
     throw new Error(safeMidnightError(error, 'Midnight Preview contract deployment failed.'));
   }
@@ -232,7 +283,7 @@ export async function proveIncomeThreshold(input: {
     throw new Error('The generated Compact circuit requires 32-byte request and verifier public keys.');
   }
   const session = getActiveLaceSession();
-  if (!session) throw new Error('Connect Midnight Lace on Preview before proving.');
+  if (!session) throw new Error('Connect a Midnight wallet on Preview before proving.');
   try {
     await requirePreviewDust(session);
     const providers = await providersFor(session);
@@ -244,7 +295,10 @@ export async function proveIncomeThreshold(input: {
       args: [input.requestId, input.requiredIncome, input.verifierPublicKey, input.timestamp],
       privateStateId: BLACKOUT_PRIVATE_STATE_ID,
     });
-    return { txId: String(result.public.txId), blockHeight: Number(result.public.blockHeight) };
+    return {
+      txId: String(result.public.txId),
+      blockHeight: Number(result.public.blockHeight),
+    };
   } catch (error: unknown) {
     throw new Error(safeMidnightError(error, 'Midnight Preview income proof transaction failed.'));
   }
@@ -261,7 +315,7 @@ export async function registerVerificationRequest(input: {
     throw new Error('The generated Compact circuit requires 32-byte request and verifier public keys.');
   }
   const session = getActiveLaceSession();
-  if (!session) throw new Error('Connect Midnight Lace on Preview before registering a request.');
+  if (!session) throw new Error('Connect a Midnight wallet on Preview before registering a request.');
   try {
     await requirePreviewDust(session);
     const providers = await providersFor(session);
@@ -273,7 +327,10 @@ export async function registerVerificationRequest(input: {
       args: [input.requestId, input.requiredIncome, input.verifierPublicKey, input.timestamp],
       privateStateId: BLACKOUT_PRIVATE_STATE_ID,
     });
-    return { txId: String(result.public.txId), blockHeight: Number(result.public.blockHeight) };
+    return {
+      txId: String(result.public.txId),
+      blockHeight: Number(result.public.blockHeight),
+    };
   } catch (error: unknown) {
     throw new Error(safeMidnightError(error, 'Midnight Preview request-registration transaction failed.'));
   }
