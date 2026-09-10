@@ -22,7 +22,7 @@ import {
   VerificationRequest
 } from './types';
 import { Contract, Witnesses } from './contract-artifacts/contract/index.js';
-import { getMidnightConfig, checkIndexerHealth, checkProofServerHealth } from './providers';
+import { assertLiveMidnightConfig, getMidnightConfig, checkIndexerHealth, checkProofServerHealth } from './providers';
 import { getActiveLaceApi } from './wallet-connector';
 
 export const DEPLOYED_CONTRACT_ADDRESS = getMidnightConfig().contractAddress;
@@ -431,13 +431,7 @@ export async function proveIncomeThreshold(
   let realBlockHeight: number | undefined;
 
   if (mode === 'LIVE') {
-    const config = getMidnightConfig();
-    if (!config.contractAddress) {
-      callbacks?.onStepChange?.('FAILED', 'Undeployed contract: Cannot submit on-chain transaction.');
-      throw new Error(
-        'LIVE Execution Blocker: The Compact contract is NOT DEPLOYED to Midnight Preview. On-chain transaction broadcast requires a deployed contract address and a connected, funded Lace wallet.'
-      );
-    }
+    const config = assertLiveMidnightConfig();
 
     // Check proof server
     callbacks?.onStepChange?.('GENERATING_SNARK_PROOF', 'Connecting to Midnight Proof Server (Port 6300)...');
@@ -449,11 +443,10 @@ export async function proveIncomeThreshold(
       );
     }
 
-    // Check indexer and fetch real block height
+    // The indexer check is only a health check. It is not confirmation of a
+    // transaction and must never be presented as one.
     const indexerStatus = await checkIndexerHealth();
-    if (indexerStatus.ok && indexerStatus.blockHeight) {
-      realBlockHeight = indexerStatus.blockHeight;
-    }
+    if (!indexerStatus.ok) throw new Error('Midnight Indexer is unreachable; LIVE verification cannot confirm a transaction.');
 
     // Submit via connected Lace wallet
     callbacks?.onStepChange?.('BROADCASTING_MIDNIGHT', 'Requesting transaction signature in Midnight Lace Wallet...');
@@ -466,24 +459,19 @@ export async function proveIncomeThreshold(
       );
     }
 
-    try {
-      if (typeof laceApi.submitTransaction === 'function') {
-        const payload = {
-          contractAddress: config.contractAddress,
-          circuit: 'prove_income_threshold',
-          requestId,
-          requiredIncome,
-          isSatisfied,
-          policyHash,
-          timestamp: Date.now()
-        };
-        const submitResult = await laceApi.submitTransaction(payload);
-        realTxHash = submitResult?.txId || submitResult?.transactionId;
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'User rejected transaction in Lace';
-      throw new Error(`Transaction submission to Midnight Preview rejected: ${msg}`);
-    }
+    // The installed generated output is an executable Compact binding, but it
+    // does not include the CompiledContract bundle required by MidnightJS to
+    // construct and submit a call transaction. Passing an object with fields
+    // such as `circuit` or `requiredIncome` to Lace is not a Midnight
+    // transaction, so LIVE must fail closed until that compiler output is
+    // supplied. The private witness remains in this function and is never
+    // serialized or passed to the wallet.
+    void config;
+    void laceApi;
+    callbacks?.onStepChange?.('FAILED', 'Missing generated CompiledContract bundle; no transaction was created or submitted.');
+    throw new Error(
+      'LIVE verification is blocked: contract/build does not contain the generated CompiledContract bundle required by @midnight-ntwrk/midnight-js-contracts. No proof or transaction was fabricated. Recompile income_verifier.compact with the matching official toolchain and provide the complete build output before enabling LIVE mode.'
+    );
   } else {
     // DEMO mode: pure client-side local evaluation
     callbacks?.onStepChange?.('GENERATING_SNARK_PROOF', 'Evaluating zero-knowledge proof constraints in witness sandbox...');
@@ -496,16 +484,16 @@ export async function proveIncomeThreshold(
 
   callbacks?.onStepChange?.(
     'COMPLETED',
-    mode === 'LIVE' ? 'Proof verified and committed on Midnight Preview.' : 'Proof verified in Midnight Demo Sandbox.'
+    'Proof verified in Midnight Demo Sandbox.'
   );
   callbacks?.onProgress?.(100);
 
-  // Compute unique cryptographic proof hash
+  // Demo receipts use a local digest only. It is not a ZK proof and is never
+  // populated in LIVE mode.
   const cryptoObj = typeof window !== 'undefined' ? window.crypto : globalThis.crypto;
   const proofEncoder = new TextEncoder();
   const proofPayload = `PROOF_MIDNIGHT_V1:${credential.commitment}:${policyHash}:${nonce}:${Date.now()}:${isSatisfied}`;
-  const proofHashBuffer = await cryptoObj.subtle.digest('SHA-256', proofEncoder.encode(proofPayload));
-  const proofHash = '0x' + Array.from(new Uint8Array(proofHashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+  const proofHash = '0x' + Array.from(new Uint8Array(await cryptoObj.subtle.digest('SHA-256', proofEncoder.encode(proofPayload)))).map(b => b.toString(16).padStart(2, '0')).join('');
 
   // Explicit unrevealed private data fields audit confirmation
   const unrevealedFields = [

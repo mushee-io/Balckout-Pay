@@ -33,27 +33,27 @@ export function getMidnightConfig(): MidnightConfig {
   const networkId = 
     (isMeta && import.meta.env.VITE_MIDNIGHT_NETWORK_ID) ||
     (isProc && process.env.MIDNIGHT_NETWORK_ID) ||
-    'preview';
+    '';
 
   const nodeRpcUrl = 
-    (isMeta && import.meta.env.VITE_MIDNIGHT_NODE_RPC_URL) ||
-    (isProc && process.env.MIDNIGHT_NODE_RPC_URL) ||
-    'https://rpc.preview.midnight.network';
+    (isMeta && import.meta.env.VITE_MIDNIGHT_NODE_URL) ||
+    (isProc && process.env.MIDNIGHT_NODE_URL) ||
+    '';
 
   const indexerUrl = 
     (isMeta && import.meta.env.VITE_MIDNIGHT_INDEXER_URL) ||
     (isProc && process.env.MIDNIGHT_INDEXER_URL) ||
-    'https://indexer.preview.midnight.network/api/v3/graphql';
+    '';
 
   const indexerWsUrl = 
     (isMeta && import.meta.env.VITE_MIDNIGHT_INDEXER_WS_URL) ||
     (isProc && process.env.MIDNIGHT_INDEXER_WS_URL) ||
-    'wss://indexer.preview.midnight.network/api/v3/graphql/ws';
+    '';
 
   const proofServerUrl = 
     (isMeta && import.meta.env.VITE_MIDNIGHT_PROOF_SERVER_URL) ||
     (isProc && process.env.MIDNIGHT_PROOF_SERVER_URL) ||
-    'http://localhost:6300';
+    '';
 
   const contractAddress = 
     (isMeta && import.meta.env.VITE_MIDNIGHT_CONTRACT_ADDRESS) ||
@@ -70,10 +70,25 @@ export function getMidnightConfig(): MidnightConfig {
   };
 }
 
+export function assertLiveMidnightConfig(config: MidnightConfig = getMidnightConfig()): MidnightConfig {
+  const required: Array<[string, string]> = [
+    ['MIDNIGHT_NETWORK_ID', config.networkId],
+    ['MIDNIGHT_NODE_URL', config.nodeRpcUrl],
+    ['MIDNIGHT_INDEXER_URL', config.indexerUrl],
+    ['MIDNIGHT_PROOF_SERVER_URL', config.proofServerUrl],
+    ['MIDNIGHT_CONTRACT_ADDRESS', config.contractAddress],
+  ];
+  const missing = required.filter(([, value]) => !value?.trim()).map(([key]) => key);
+  if (missing.length) {
+    throw new Error(`LIVE mode requires wallet-verified Midnight configuration: ${missing.join(', ')}.`);
+  }
+  return config;
+}
+
 // Initialize network ID globally on load
 try {
   const config = getMidnightConfig();
-  setNetworkId(config.networkId);
+  if (config.networkId) setNetworkId(config.networkId);
 } catch {
   // Already configured or handled
 }
@@ -83,6 +98,7 @@ try {
  */
 export function getProofProvider(zkArtifactsBaseUrl: string = 'http://localhost:3000/zk-artifacts') {
   const config = getMidnightConfig();
+  if (!config.proofServerUrl) throw new Error('MIDNIGHT_PROOF_SERVER_URL is required for LIVE proving.');
   const zkConfigProvider = new FetchZkConfigProvider(zkArtifactsBaseUrl);
   return httpClientProofProvider(config.proofServerUrl, zkConfigProvider);
 }
@@ -92,6 +108,9 @@ export function getProofProvider(zkArtifactsBaseUrl: string = 'http://localhost:
  */
 export function getPublicDataProvider() {
   const config = getMidnightConfig();
+  if (!config.indexerUrl || !config.indexerWsUrl) {
+    throw new Error('MIDNIGHT_INDEXER_URL and MIDNIGHT_INDEXER_WS_URL are required for LIVE indexer access.');
+  }
   return indexerPublicDataProvider(config.indexerUrl, config.indexerWsUrl);
 }
 
@@ -114,6 +133,7 @@ export async function fetchOnChainContractRecords(contractAddress: string): Prom
   }
 
   const config = getMidnightConfig();
+  if (!config.indexerUrl) throw new Error('MIDNIGHT_INDEXER_URL is required for on-chain reads.');
   const query = `
     query GetContractState($address: HexEncoded!) {
       contract(address: $address) {

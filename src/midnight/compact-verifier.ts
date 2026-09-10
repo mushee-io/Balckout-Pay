@@ -262,36 +262,13 @@ export class CompactContractLedger {
         );
       }
 
-      const reqId = `blk_req_${Date.now().toString(36)}_${Math.floor(Math.random() * 1000).toString(16)}`;
-
-      if (typeof laceApi.submitTransaction === 'function') {
-        await laceApi.submitTransaction({
-          contractAddress: config.contractAddress,
-          circuit: 'register_verification_request',
-          requestId: reqId,
-          requiredIncome: req.requiredIncome,
-          verifierAddress: req.verifierAddress,
-          timestamp: Date.now()
-        });
-      }
-
-      await this.syncLiveLedger();
-
-      const created = this.liveRequestsCache.find(r => r.id === reqId);
-      if (created) return created;
-
-      return {
-        ...req,
-        id: reqId,
-        policyId,
-        rules,
-        nonce,
-        policyHash: `0x${reqId}`,
-        createdAt: Date.now(),
-        expiresAt,
-        status: 'PENDING',
-        isLiveOnChain: true,
-      };
+      // The dApp connector accepts finalized Midnight transactions, not an
+      // application object. Until the missing CompiledContract bundle is
+      // restored, refuse to create a misleading local LIVE request.
+      void laceApi;
+      throw new Error(
+        'Live request registration is blocked: the generated CompiledContract bundle required to create register_verification_request is missing. No transaction was submitted.'
+      );
     }
 
     // DEMO mode

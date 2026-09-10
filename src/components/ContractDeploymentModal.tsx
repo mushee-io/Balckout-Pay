@@ -125,78 +125,14 @@ export const ContractDeploymentModal: React.FC<ContractDeploymentModalProps> = (
     setErrorMsg(null);
 
     try {
-      // Access the injected Lace API
-      const win = window as any;
-      const lace = win.midnight?.lace;
-      if (!lace) {
-        throw new Error('Lace (Midnight) extension not found on window.midnight.lace.');
-      }
-
-      // Connect to Lace DApp API
-      const api = await lace.connect('preview');
-      
-      // Step 1: Prepare contract deployment payload
-      // In Midnight, a contract deployment extrinsic is signed by the connected wallet.
-      // We pass the compiled contract manifest and initial parameters.
-      const manifestRes = await fetch('/src/midnight/contract-artifacts/compiler/contract-info.json');
-      const contractInfo = await manifestRes.json();
-
-      // Submit deployment transaction via Lace extension
-      let submission: { txHash: string; contractAddress?: string } | null = null;
-      
-      if (typeof api.deployContract === 'function') {
-        submission = await api.deployContract({
-          contractInfo,
-          initialState: {},
-        });
-      } else if (typeof api.submitTransaction === 'function') {
-        submission = await api.submitTransaction({
-          type: 'DEPLOY_CONTRACT',
-          contractName: 'income_verifier',
-          network: 'preview'
-        });
-      } else {
-        throw new Error(
-          'Connected Lace wallet does not support direct deployment via this connector interface. Please run "npm run midnight:deploy" in your terminal.'
-        );
-      }
-
-      if (!submission || !submission.txHash || !submission.contractAddress) {
-        throw new Error(
-          'Deployment transaction was rejected by user in Lace or failed to produce confirmed on-chain deployment details.'
-        );
-      }
-
-      const confirmedTxHash = submission.txHash;
-      const confirmedContractAddr = submission.contractAddress;
-
-      setTxHash(confirmedTxHash);
-      setContractAddress(confirmedContractAddr);
-      setStep('INDEXING');
-
-      // Post deployment evidence to local deployment endpoint
-      try {
-        await fetch('/api/deploy/record', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contractAddress: confirmedContractAddr,
-            txHash: confirmedTxHash,
-            deployerAddress: wallet.address,
-            network: 'Midnight Preview',
-            timestamp: Date.now()
-          })
-        });
-      } catch (err) {
-        console.warn('Deployment recorded locally; dev server bridge not active:', err);
-      }
-
-      // Save into localStorage so client immediately recognizes deployed address
-      localStorage.setItem('MIDNIGHT_CONTRACT_ADDRESS', confirmedContractAddr);
-      localStorage.setItem('MIDNIGHT_DEPLOYMENT_TX', confirmedTxHash);
-
-      setStep('SUCCESS');
-      onDeploymentComplete?.(confirmedContractAddr, confirmedTxHash);
+      // A DApp connector signs finalized Midnight transactions. It does not
+      // accept a hand-written deployment object. The generated artifacts in
+      // this checkout lack the CompiledContract bundle needed to construct
+      // that transaction with MidnightJS, so fail closed instead of creating
+      // a false deployment record in localStorage or the dev-server API.
+      throw new Error(
+        'Deployment is blocked: the generated CompiledContract bundle is missing. No deployment transaction was created. Recompile with the matching Midnight toolchain, then deploy using the official MidnightJS transaction lifecycle.'
+      );
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Deployment failed or was rejected by user.');
       setStep('ERROR');

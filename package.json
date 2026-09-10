@@ -10,6 +10,7 @@
     "clean": "rm -rf dist server.js",
     "midnight:deploy": "tsx scripts/deploy-midnight.ts",
     "midnight:finalize": "tsx scripts/finalize-midnight.ts",
+    "midnight:check": "tsx scripts/midnight-check.ts",
     "test": "tsx src/tests/privacy.test.ts",
     "lint": "tsc --noEmit"
   },
