@@ -10,9 +10,110 @@
 
 import { ExecutionMode, VerificationRequest, ZkProofResult } from './types';
 import { getMidnightConfig, fetchOnChainContractRecords, OnChainVerificationItem } from './providers';
-import { getActiveLaceApi } from './wallet-connector';
+import { getActiveLaceSession } from './wallet-connector';
 import { generateSecureNonce, hexToBytes32 } from './zk-engine';
 import { getActiveBlackoutContractAddress, registerVerificationRequest } from './live-midnight';
+
+const BECH32_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+const BECH32M_CONST = 0x2bc830a3;
+const BECH32_GENERATORS = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+
+function bech32Polymod(values: number[]): number {
+  let chk = 1;
+  for (const value of values) {
+    const top = chk >>> 25;
+    chk = (((chk & 0x1ffffff) << 5) ^ value) >>> 0;
+    for (let i = 0; i < 5; i++) {
+      if ((top >>> i) & 1) chk = (chk ^ BECH32_GENERATORS[i]) >>> 0;
+    }
+  }
+  return chk >>> 0;
+}
+
+function bech32HrpExpand(hrp: string): number[] {
+  const high = Array.from(hrp, (char) => char.charCodeAt(0) >>> 5);
+  const low = Array.from(hrp, (char) => char.charCodeAt(0) & 31);
+  return [...high, 0, ...low];
+}
+
+function convertBech32WordsToBytes(words: number[]): Uint8Array {
+  let acc = 0;
+  let bits = 0;
+  const output: number[] = [];
+
+  for (const value of words) {
+    if (value < 0 || value > 31) throw new Error('Invalid Bech32m data word.');
+    acc = ((acc << 5) | value) & 0xfff;
+    bits += 5;
+    while (bits >= 8) {
+      bits -= 8;
+      output.push((acc >>> bits) & 0xff);
+    }
+  }
+
+  if (bits >= 5 || ((acc << (8 - bits)) & 0xff) !== 0) {
+    throw new Error('Invalid Bech32m padding.');
+  }
+
+  return Uint8Array.from(output);
+}
+
+/**
+ * DApp Connector v4 exposes shieldedCoinPublicKey in Midnight Bech32m form.
+ * The Compact circuit needs the underlying Bytes<32>, so decode and checksum-
+ * validate it locally. Raw 32-byte hex is also accepted for compatible wallets.
+ */
+function getLiveVerifierPublicKeyHex(): string {
+  const session = getActiveLaceSession();
+  if (!session) {
+    throw new Error('LIVE registration requires an active Midnight Preview wallet session. Reconnect the wallet and try again.');
+  }
+
+  const encodedKey = session.addresses?.shieldedCoinPublicKey;
+  if (!encodedKey || typeof encodedKey !== 'string') {
+    throw new Error('Connected Midnight wallet did not expose a shielded coin public key for verifier binding.');
+  }
+
+  const rawHex = encodedKey.startsWith('0x') ? encodedKey.slice(2) : encodedKey;
+  if (/^[0-9a-fA-F]{64}$/.test(rawHex)) {
+    return `0x${rawHex.toLowerCase()}`;
+  }
+
+  if (encodedKey !== encodedKey.toLowerCase() && encodedKey !== encodedKey.toUpperCase()) {
+    throw new Error('Wallet returned a mixed-case Bech32m verifier public key.');
+  }
+
+  const value = encodedKey.toLowerCase();
+  const separator = value.lastIndexOf('1');
+  if (separator <= 0 || separator + 7 > value.length) {
+    throw new Error('Wallet returned an invalid Bech32m verifier public key.');
+  }
+
+  const hrp = value.slice(0, separator);
+  const expectedHrp = session.networkId === 'mainnet'
+    ? 'mn_shield-cpk'
+    : `mn_shield-cpk_${session.networkId}`;
+  if (hrp !== expectedHrp) {
+    throw new Error(`Verifier public key network/type mismatch: expected ${expectedHrp}, received ${hrp}.`);
+  }
+
+  const words = Array.from(value.slice(separator + 1), (char) => {
+    const index = BECH32_CHARSET.indexOf(char);
+    if (index === -1) throw new Error('Wallet returned an invalid Bech32m character.');
+    return index;
+  });
+
+  if (bech32Polymod([...bech32HrpExpand(hrp), ...words]) !== BECH32M_CONST) {
+    throw new Error('Wallet verifier public key failed Bech32m checksum validation.');
+  }
+
+  const bytes = convertBech32WordsToBytes(words.slice(0, -6));
+  if (bytes.length !== 32) {
+    throw new Error(`Decoded verifier public key must be 32 bytes; received ${bytes.length}.`);
+  }
+
+  return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
 
 export const INITIAL_DEMO_REQUESTS: VerificationRequest[] = [
   {
@@ -258,18 +359,18 @@ export class CompactContractLedger {
         );
       }
 
-      if (!/^0x[0-9a-fA-F]{64}$/.test(req.verifierAddress)) {
-        throw new Error('LIVE registration requires the verifier’s 32-byte public key as a 0x-prefixed 64-character hex value.');
-      }
+      // LIVE verifier identity is always bound to the actual connected Midnight
+      // wallet key. The form's demo placeholder is deliberately ignored.
+      const verifierPublicKeyHex = getLiveVerifierPublicKeyHex();
       const submitted = await registerVerificationRequest({
         contractAddress,
         requestId: hexToBytes32(nonce),
         requiredIncome: BigInt(Math.floor(req.requiredIncome)),
-        verifierPublicKey: hexToBytes32(req.verifierAddress),
+        verifierPublicKey: hexToBytes32(verifierPublicKeyHex),
         timestamp: BigInt(Math.floor(Date.now() / 1000)),
       });
       const liveRequest: VerificationRequest = {
-        ...req, id: req.id || nonce, policyId, rules, nonce,
+        ...req, verifierAddress: verifierPublicKeyHex, id: req.id || nonce, policyId, rules, nonce,
         policyHash: req.policyHash || `0x${nonce}`,
         createdAt: Date.now(), expiresAt, status: 'PENDING', isLiveOnChain: true,
         notes: `${req.notes ? `${req.notes} ` : ''}Preview transaction: ${submitted.txId}`,
