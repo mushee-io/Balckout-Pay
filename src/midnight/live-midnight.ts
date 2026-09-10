@@ -15,9 +15,33 @@ import { makeBlackoutCompiledContract, type BlackoutPrivateState, type BlackoutW
 import { getActiveLaceSession, type LaceSession } from './wallet-connector';
 
 export const BLACKOUT_PRIVATE_STATE_ID = 'blackout-income-verifier-session';
-let activeContractAddress = '';
+const CONTRACT_ADDRESS_STORAGE_KEY = 'blackout_midnight_preview_contract_address_v1';
+
+function readPersistedContractAddress(): string {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return '';
+    const stored = window.localStorage.getItem(CONTRACT_ADDRESS_STORAGE_KEY)?.trim() || '';
+    return /^[0-9a-fA-F]{64}$/.test(stored) ? stored : '';
+  } catch {
+    return '';
+  }
+}
+
+function persistContractAddress(address: string): void {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage && /^[0-9a-fA-F]{64}$/.test(address)) {
+      window.localStorage.setItem(CONTRACT_ADDRESS_STORAGE_KEY, address);
+    }
+  } catch {
+    // Contract address is public. Persistence failure must not block a valid deployment.
+  }
+}
+
+let activeContractAddress = readPersistedContractAddress();
 
 export function getActiveBlackoutContractAddress(): string {
+  if (activeContractAddress) return activeContractAddress;
+  activeContractAddress = readPersistedContractAddress();
   return activeContractAddress;
 }
 
@@ -189,6 +213,7 @@ export async function deployBlackoutContract() {
       initialPrivateState: {},
     });
     activeContractAddress = String(deployed.deployTxData.public.contractAddress);
+    persistContractAddress(activeContractAddress);
     return { contractAddress: activeContractAddress, txId: String(deployed.deployTxData.public.txId) };
   } catch (error: unknown) {
     throw new Error(safeMidnightError(error, 'Midnight Preview contract deployment failed.'));
