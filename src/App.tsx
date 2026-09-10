@@ -16,25 +16,27 @@ import { TestSuiteModal } from './components/TestSuiteModal';
 import { WalletModal } from './components/WalletModal';
 import { ContractDeploymentModal } from './components/ContractDeploymentModal';
 
-import { 
+import {
   ExecutionMode,
-  PrivateIncomeCredential, 
-  VerificationRequest, 
-  WalletState, 
+  PrivateIncomeCredential,
+  VerificationRequest,
+  WalletState,
   ZkProofResult
 } from './midnight/types';
-import { 
-  connectLiveLaceWallet, 
-  connectDemoWallet, 
+import {
+  connectLiveLaceWallet,
+  connectDemoWallet,
   DEFAULT_WALLET_STATE,
-  isLaceMidnightAvailable
 } from './midnight/wallet-connector';
 import { compactLedger } from './midnight/compact-verifier';
 import { computeCommitment, generateSecureSalt } from './midnight/zk-engine';
+import {
+  mergePublicLiveEvidence,
+  persistPublicLiveEvidence,
+} from './midnight/evidence-store';
 import { PayrollDashboard } from './payroll/components/PayrollDashboard';
 
 export default function App() {
-  // Hash Routing State (Default to 'home' landing page)
   const [activeTab, setActiveTab] = useState<string>(() => {
     const hash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
     if (['prove', 'request', 'developers', 'verify', 'payroll'].includes(hash)) {
@@ -46,24 +48,17 @@ export default function App() {
     return 'home';
   });
 
-  // Wallet State
-  const [wallet, setWallet] = useState<WalletState>({
-    ...DEFAULT_WALLET_STATE,
-    isConnected: true,
-    address: 'mn_addr_test1q48m79c80s3kd89f2a938jdf892k39d821',
-    walletName: 'Midnight Sandbox Keypair (Demo)',
-    balanceDust: '250.00 tNIGHT',
-    mode: 'DEMO',
-  });
+  // Start disconnected. We never pretend a demo wallet is connected after refresh.
+  const [wallet, setWallet] = useState<WalletState>({ ...DEFAULT_WALLET_STATE });
   const [walletError, setWalletError] = useState<string | null>(null);
+  const [privacyMode, setPrivacyMode] = useState(false);
 
-  // Private Credential & Requests (for Midnight Income Verification proofs)
+  // Private witness data stays in RAM only. LIVE and DEMO never share a witness.
   const [credential, setCredential] = useState<PrivateIncomeCredential | null>(null);
-  const [requests, setRequests] = useState<VerificationRequest[]>(() => compactLedger.getRequests('DEMO'));
+  const [requests, setRequests] = useState<VerificationRequest[]>([]);
   const [selectedRequestForVerifier, setSelectedRequestForVerifier] = useState<VerificationRequest | null>(null);
   const [selectedRequestForProof, setSelectedRequestForProof] = useState<VerificationRequest | null>(null);
 
-  // Modals & Drawers
   const [isCreateCredentialOpen, setIsCreateCredentialOpen] = useState(false);
   const [isCreateRequestOpen, setIsCreateRequestOpen] = useState(false);
   const [isProofModalOpen, setIsProofModalOpen] = useState(false);
@@ -77,7 +72,6 @@ export default function App() {
     return window.location.search.includes('action=deploy') || window.location.hash.includes('deploy');
   });
 
-  // Sync Hash Route with URL
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
@@ -95,19 +89,19 @@ export default function App() {
 
   const handleNavigateTab = (tab: string) => {
     setActiveTab(tab);
-    if (tab === 'home') {
-      window.location.hash = '/';
-    } else {
-      window.location.hash = `/${tab}`;
-    }
+    window.location.hash = tab === 'home' ? '/' : `/${tab}`;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Initialize initial demo credential in RAM
+  // Demo witness exists only when the user explicitly enters DEMO mode.
   useEffect(() => {
-    async function initDefaultCredential() {
+    if (!wallet.isConnected || wallet.mode !== 'DEMO' || credential) return;
+
+    let cancelled = false;
+    async function initDefaultDemoCredential() {
       const salt = generateSecureSalt();
       const commitment = await computeCommitment(4720, 'GBP', salt);
+      if (cancelled) return;
       setCredential({
         id: 'cred_alex_primary_01',
         monthlyIncome: 4720,
@@ -127,18 +121,24 @@ export default function App() {
         isDemo: true,
       });
     }
-    initDefaultCredential();
-  }, []);
+    initDefaultDemoCredential();
+    return () => { cancelled = true; };
+  }, [wallet.isConnected, wallet.mode, credential]);
 
-  // Wallet Connection Handler (Live Lace vs Demo Sandbox)
   const handleConnectWallet = async (mode: ExecutionMode = 'LIVE') => {
     setWallet((prev) => ({ ...prev, isConnecting: true }));
     setWalletError(null);
     try {
+      // Clear the previous mode's private witness before crossing execution boundaries.
+      setCredential(null);
+      setSelectedRequestForProof(null);
+      setSelectedRequestForVerifier(null);
+
       if (mode === 'LIVE') {
         const state = await connectLiveLaceWallet(wallet.network);
         setWallet(state);
-        setRequests(compactLedger.getRequests('LIVE'));
+        const indexed = await compactLedger.syncLiveLedger();
+        setRequests(mergePublicLiveEvidence(indexed));
       } else {
         const state = await connectDemoWallet(wallet.network);
         setWallet(state);
@@ -148,16 +148,18 @@ export default function App() {
       const msg = err instanceof Error ? err.message : 'Failed to connect wallet';
       setWalletError(msg);
       setWallet((prev) => ({ ...prev, isConnecting: false, error: msg }));
-      if (mode === 'LIVE') {
-        setIsWalletModalOpen(true);
-      }
+      if (mode === 'LIVE') setIsWalletModalOpen(true);
     }
   };
 
-  // Proof Success Handler
   const handleProofSuccess = (proof: ZkProofResult) => {
     const updated = compactLedger.recordProofResult(proof.requestId, proof, wallet.mode);
-    setRequests(compactLedger.getRequests(wallet.mode));
+    if (wallet.mode === 'LIVE') {
+      persistPublicLiveEvidence(updated);
+      setRequests(mergePublicLiveEvidence(compactLedger.getRequests('LIVE')));
+    } else {
+      setRequests(compactLedger.getRequests('DEMO'));
+    }
     if (selectedRequestForVerifier?.id === proof.requestId) {
       setSelectedRequestForVerifier(updated);
     }
@@ -174,11 +176,18 @@ export default function App() {
   };
 
   const handleCreateRequest = async (reqData: Omit<VerificationRequest, 'id' | 'createdAt' | 'status'>) => {
-    await compactLedger.registerRequest(reqData, wallet.mode);
-    setRequests(compactLedger.getRequests(wallet.mode));
+    const created = await compactLedger.registerRequest(reqData, wallet.mode);
+    if (wallet.mode === 'LIVE') {
+      persistPublicLiveEvidence(created);
+      setRequests(mergePublicLiveEvidence(compactLedger.getRequests('LIVE')));
+    } else {
+      setRequests(compactLedger.getRequests('DEMO'));
+    }
   };
 
-  const handleApplyDemoState = (demoCred: PrivateIncomeCredential, proof: ZkProofResult) => {
+  const handleApplyDemoState = async (demoCred: PrivateIncomeCredential, proof: ZkProofResult) => {
+    const demoWallet = await connectDemoWallet(wallet.network);
+    setWallet(demoWallet);
     setCredential(demoCred);
     const updated = compactLedger.recordProofResult(proof.requestId, proof, 'DEMO');
     setRequests(compactLedger.getRequests('DEMO'));
@@ -187,12 +196,13 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#090909] text-[#E8E6DF] flex flex-col font-sans selection:bg-[#FF5A5F] selection:text-black">
-      {/* Top Navbar */}
       <Navbar
         activeTab={activeTab}
         onSelectTab={handleNavigateTab}
         wallet={wallet}
         onConnectWallet={handleConnectWallet}
+        privacyMode={privacyMode}
+        onTogglePrivacyMode={() => setPrivacyMode((value) => !value)}
         onOpenDemo={() => setIsDemoOpen(true)}
         onOpenDevDrawer={() => setIsDevDrawerOpen(true)}
         onOpenAuditor={() => setIsAuditorOpen(true)}
@@ -200,7 +210,6 @@ export default function App() {
         onOpenDeployModal={() => setIsDeployModalOpen(true)}
       />
 
-      {/* Main Content View Switcher */}
       <main className="flex-1">
         {activeTab === 'home' && (
           <Homepage
@@ -233,9 +242,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'developers' && (
-          <DevelopersView />
-        )}
+        {activeTab === 'developers' && <DevelopersView />}
 
         {activeTab === 'verify' && (
           <VerifierView
@@ -254,9 +261,7 @@ export default function App() {
         )}
       </main>
 
-      {/* Editorial Neo-Brutalist Footer */}
       <footer className="border-t border-white/[0.08] bg-[#060606] text-left font-sans">
-        {/* Massive Statement */}
         <div className="max-w-[1440px] mx-auto px-4 sm:px-8 lg:px-12 pt-16 pb-12 space-y-12">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-end border-b border-white/[0.08] pb-12">
             <div className="lg:col-span-8 space-y-2">
@@ -277,33 +282,22 @@ export default function App() {
             </div>
           </div>
 
-          {/* Navigation and Metadata Row */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 font-mono text-xs text-[#8A8882]">
             <div className="flex flex-wrap items-center gap-6">
-              <button 
-                onClick={() => setIsDevDrawerOpen(true)} 
-                className="hover:text-[#E8E6DF] uppercase transition-colors cursor-pointer"
-              >
+              <button onClick={() => setIsDevDrawerOpen(true)} className="hover:text-[#E8E6DF] uppercase transition-colors cursor-pointer">
                 [ COMPACT CONTRACT ]
               </button>
-              <button 
-                onClick={() => setIsAuditorOpen(true)} 
-                className="hover:text-[#E8E6DF] uppercase transition-colors cursor-pointer"
-              >
+              <button onClick={() => setIsAuditorOpen(true)} className="hover:text-[#E8E6DF] uppercase transition-colors cursor-pointer">
                 [ PRIVACY TELEMETRY ]
               </button>
-              <button 
-                onClick={() => setIsTestsOpen(true)} 
-                className="hover:text-[#E8E6DF] uppercase transition-colors cursor-pointer"
-              >
+              <button onClick={() => setIsTestsOpen(true)} className="hover:text-[#E8E6DF] uppercase transition-colors cursor-pointer">
                 [ TEST SUITE ]
               </button>
-              <button 
-                onClick={() => setIsDemoOpen(true)} 
-                className="text-[#FF5A5F] hover:underline uppercase font-bold cursor-pointer"
-              >
-                [ 30S INTERACTIVE DEMO ]
-              </button>
+              {wallet.mode !== 'LIVE' && (
+                <button onClick={() => setIsDemoOpen(true)} className="text-[#FF5A5F] hover:underline uppercase font-bold cursor-pointer">
+                  [ 30S INTERACTIVE DEMO ]
+                </button>
+              )}
             </div>
 
             <div className="text-[11px] text-[#8A8882]/80">
@@ -312,7 +306,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Bottom Ticker Strip */}
         <div className="border-t border-white/[0.06] py-3 bg-[#040404] overflow-hidden text-[10px] font-mono tracking-[0.25em] text-[#8A8882]/60 uppercase whitespace-nowrap">
           <div className="inline-block">
             BLACKOUT PROTOCOL · MIDNIGHT COMPACT DSL · ZERO-KNOWLEDGE SNARK PROOFS · 0 BYTES SALARY EXPOSURE · DUAL-STATE ARCHITECTURE · PRIVATE ELIGIBILITY INFRASTRUCTURE
@@ -320,7 +313,6 @@ export default function App() {
         </div>
       </footer>
 
-      {/* Modals & Drawers */}
       {isProofModalOpen && selectedRequestForProof && (
         <ProofGenerationModal
           isOpen={isProofModalOpen}
@@ -340,10 +332,9 @@ export default function App() {
         <CreateCredentialModal
           isOpen={isCreateCredentialOpen}
           onClose={() => setIsCreateCredentialOpen(false)}
-          onSaveCredential={(cred) => {
-            setCredential(cred);
-          }}
+          onSaveCredential={setCredential}
           initialCredential={credential}
+          mode={wallet.mode}
         />
       )}
 
@@ -373,17 +364,11 @@ export default function App() {
       )}
 
       {isDevDrawerOpen && (
-        <DeveloperDrawer
-          isOpen={isDevDrawerOpen}
-          onClose={() => setIsDevDrawerOpen(false)}
-        />
+        <DeveloperDrawer isOpen={isDevDrawerOpen} onClose={() => setIsDevDrawerOpen(false)} />
       )}
 
       {isTestsOpen && (
-        <TestSuiteModal
-          isOpen={isTestsOpen}
-          onClose={() => setIsTestsOpen(false)}
-        />
+        <TestSuiteModal isOpen={isTestsOpen} onClose={() => setIsTestsOpen(false)} />
       )}
 
       {isWalletModalOpen && (
@@ -401,7 +386,7 @@ export default function App() {
         <ContractDeploymentModal
           isOpen={isDeployModalOpen}
           onClose={() => setIsDeployModalOpen(false)}
-          onDeploymentComplete={(contractAddress, txHash) => {
+          onDeploymentComplete={() => {
             handleConnectWallet('LIVE');
           }}
         />
