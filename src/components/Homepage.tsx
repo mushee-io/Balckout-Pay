@@ -117,11 +117,20 @@ export const Homepage: React.FC<HomepageProps> = ({
               </button>
 
               <button
+                onClick={() => onNavigate('payroll')}
+                id="hero-btn-black-payroll"
+                className="inline-flex items-center gap-2.5 px-6 py-4 bg-[#141414] hover:bg-[#1c1c1c] border border-[#FF5A5F]/50 hover:border-[#FF5A5F] text-[#E8E6DF] font-mono text-xs font-semibold uppercase tracking-[0.14em] transition-all rounded-[2px] cursor-pointer"
+              >
+                <span className="w-1.5 h-1.5 bg-[#FF5A5F]"></span>
+                <span>BLACK PAYROLL [NEW] →</span>
+              </button>
+
+              <button
                 onClick={() => onNavigate('request')}
                 id="hero-btn-create-request"
-                className="inline-flex items-center gap-2.5 px-6 py-4 bg-transparent hover:bg-white/[0.04] border border-white/[0.14] hover:border-white/[0.3] text-[#E8E6DF] font-mono text-xs font-semibold uppercase tracking-[0.14em] transition-all rounded-[2px] cursor-pointer"
+                className="inline-flex items-center gap-2.5 px-6 py-4 bg-transparent hover:bg-white/[0.04] border border-white/[0.14] hover:border-white/[0.3] text-[#8A8882] hover:text-[#E8E6DF] font-mono text-xs font-semibold uppercase tracking-[0.14em] transition-all rounded-[2px] cursor-pointer"
               >
-                <span>CREATE VERIFICATION REQUEST</span>
+                <span>VERIFICATION REQUESTS</span>
               </button>
             </div>
 
@@ -456,7 +465,23 @@ export const Homepage: React.FC<HomepageProps> = ({
               </div>
               <div className="pt-2 flex items-center justify-between text-xs font-mono text-[#26A17B]">
                 <span>✓ VERIFICATION SUPPORTED</span>
-                <span className="text-[#8A8882]">WAVE 1</span>
+                <span className="text-[#8A8882]">BLACKOUT VERIFY</span>
+              </div>
+            </div>
+
+            {/* Black Payroll (New Product Standalone) */}
+            <div className="p-6 bg-[#121212] border border-[#26A17B] space-y-4 cursor-pointer hover:bg-[#161616] transition-colors" onClick={() => onNavigate('payroll')}>
+              <div className="flex items-center justify-between text-[10px] font-mono uppercase">
+                <span className="text-[#26A17B] font-bold">[ NEW PRODUCT ]</span>
+                <span className="px-2 py-0.5 bg-[#26A17B] text-black font-bold">STANDALONE SUITE</span>
+              </div>
+              <div className="space-y-1">
+                <div className="text-xl font-condensed font-bold uppercase text-[#E8E6DF]">BLACK PAYROLL</div>
+                <div className="text-sm font-mono text-[#8A8882]">"Pay people. Reveal nothing else."</div>
+              </div>
+              <div className="pt-2 flex items-center justify-between text-xs font-mono text-[#26A17B]">
+                <span>EXPLORE WORKSPACE →</span>
+                <span className="text-[#8A8882]">MIDNIGHT PROTOCOL</span>
               </div>
             </div>
 

@@ -1,188 +1,171 @@
-# Blackout Pay
+# BlackoutPay
 
-**Prove what you earn without revealing what you earn.**
+**PROVE YOU QUALIFY. REVEAL NOTHING ELSE.**
 
-Blackout Pay is a privacy-preserving income verification application built for the **Midnight Network Buildathon (Wave 1)**.
+BlackoutPay is a privacy-first eligibility infrastructure protocol built on the **Midnight Network**.
 
----
+Instead of forcing consumers and businesses to upload bank statements, payslips, tax filings, and sensitive identity documents to third-party databases, BlackoutPay transforms eligibility verification into a zero-knowledge proof.
 
-## 1. The Problem
+The core protocol flow is:
 
-Traditional income verification is fundamentally broken and invasive:
-* **Oversharing**: Renting an apartment or applying for a loan requires applicants to disclose complete PDF bank statements, detailed payslips, employer details, and exact salary figures.
-* **Surveillance Risk**: Financial documents contain line-by-line transaction histories, personal subscriptions, medical expenses, and family obligations that verifiers should never see.
-* **Data Liability**: Landlords, letting agents, and lenders store unencrypted financial documents on insecure servers, creating massive data breach and identity theft vulnerabilities.
+$$\mathbf{REQUEST} \longrightarrow \mathbf{PROVE} \longrightarrow \mathbf{VERIFY} \longrightarrow \mathbf{ACT}$$
 
----
+A verifier creates institutional requirements such as:
+* Income $\ge$ £2,500/month
+* Age $\ge$ 18
+* Country = UK
+* Employment status = Employed
 
-## 2. The Solution
-
-Blackout Pay replaces sensitive document exchange with **Zero-Knowledge Threshold Verification**.
-
-When a verifier asks:
-> *"Does this applicant earn at least £2,500 per month?"*
-
-Blackout Pay executes an off-chain zero-knowledge circuit on the user's device and proves:
-> **✓ Monthly income requirement satisfied**
-
-**The verifier learns only: PASS / FAIL.**
-
-The verifier NEVER receives:
-* Exact monthly or annual salary
-* Bank account numbers or balances
-* Payslips or tax forms
-* Transaction records
+The applicant proves compliance mathematically without revealing the underlying private numbers or personal details. The verifier receives only what is strictly necessary: **QUALIFIED**.
 
 ---
 
-## 3. Why Midnight Network
+## The Problem: Data Overexposure in Eligibility Checks
 
-Midnight's **dual-state zero-knowledge architecture** makes this selective disclosure possible:
+Traditional eligibility checks (tenant screening, private lending, accredited investor gating, institutional compliance) are structurally broken:
 
-1. **Private State (Witness)**: Private financial figures (`monthlyIncome`, `salt`) exist solely in client-side witness memory and are never transmitted over the network or published to the ledger.
-2. **Public State**: The public ledger only stores the verification predicate (`requiredIncome: £2,500`), the verification identifier, and the cryptographic proof artifact.
-3. **Compact Smart Contracts**: Written in Midnight's domain-specific language **Compact** (`contract/income_verifier.compact`), ensuring mathematical soundness and tamper resistance.
+1. **Massive Over-Disclosure**: Applying to rent an apartment requires handing over unredacted PDF bank statements containing every coffee, pharmacy visit, salary payment, and personal transaction.
+2. **Surveillance & Data Honeypots**: Landlords, letting agents, and loan brokers store sensitive personal identity files in insecure mailboxes, spreadsheets, and cloud buckets.
+3. **Data Breach Liability**: Verifiers do not want to be custodians of personal identity records—they merely need to know if the applicant meets the qualification threshold.
 
 ---
 
-## 4. How It Works
+## The BlackoutPay Solution
+
+BlackoutPay introduces a **reusable zero-knowledge eligibility layer**:
+
+* **Private Witness Memory**: Sensitive financial attributes (`monthlyIncome`, `age`, `country`, `bankBalance`, `employmentStatus`, `salt`) exist solely in client RAM. They are never transmitted across the network or committed to the public chain.
+* **Compact ZK Circuit**: Written in Midnight's **Compact** DSL (`contract/income_verifier.compact`), enforcing verifiable arithmetic constraints.
+* **Cryptographic Policy Binding**: Every request generates a unique `policyHash` binding the exact rules, verifier address, and single-use presentation nonce.
+* **Single-Use Replay Protection**: Nonces prevent proof interception or reuse across unauthorized parties.
+* **Zero Leakage Invariant**: The verifier and network validators learn 0 bytes of the applicant's exact salary, net worth, birth date, or employer identity.
+
+---
+
+## High-Level Protocol Architecture
 
 ```
-[ Private Witness Memory ]            [ Midnight Compact Circuit ]            [ Public Ledger & Verifier ]
-Exact Income: £4,720          --->    assert(income >= threshold)    --->     Result: ✓ PASSED
-Blinding Salt: 0x8f...                ZK-SNARK Proof Generation               Salary Disclosed: 0 bytes
-```
-
-### Complete User Journey:
-1. **Connect Wallet**: Connect via Lace (Midnight) or Midnight DevNet sandbox keys.
-2. **Create Private Income Credential**: Store monthly income in your local witness vault with a cryptographic commitment.
-3. **Receive or Create Verification Request**: E.g., Landlord requires *Monthly income ≥ £2,500* for rental affordability.
-4. **Generate Zero-Knowledge Proof**: The Compact circuit evaluates the constraint locally and produces a ZK proof.
-5. **Verifier Confirmation**: Verifier inspects the verified certificate with guaranteed zero salary leakage.
-
----
-
-## 5. Technical Architecture
-
-```
-├── contract/
-│   └── income_verifier.compact       # Midnight Compact Smart Contract DSL
-├── src/
-│   ├── components/
-│   │   ├── Navbar.tsx                # Brand header, wallet status, quick demo
-│   │   ├── HeroSection.tsx           # Premium fintech hero & live visual flow
-│   │   ├── Dashboard.tsx             # Private credential summary & active requests
-│   │   ├── CreateCredentialModal.tsx # Private credential vault configuration
-│   │   ├── CreateRequestModal.tsx    # Verifier requirement creation
-│   │   ├── ProofGenerationModal.tsx  # Honest step-by-step ZK proof pipeline
-│   │   ├── VerifierView.tsx          # Public verifier verification card
-│   │   ├── InteractiveDemoModal.tsx  # 30-second Judge Walkthrough
-│   │   ├── PrivacyAuditor.tsx        # Real-time state inspector (0 bytes leakage)
-│   │   └── DeveloperDrawer.tsx       # Compact DSL code & ABI viewer
-│   ├── midnight/
-│   │   ├── types.ts                  # Strictly typed Midnight interfaces
-│   │   ├── zk-engine.ts              # ZK proof generator, commitment generator & verification
-│   │   ├── wallet-connector.ts       # Lace Midnight DApp connector & devnet adapter
-│   │   └── compact-verifier.ts       # Compact ledger state coordinator
-│   ├── tests/
-│   │   └── privacy.test.ts           # Automated test suite (soundness & leakage)
-│   ├── App.tsx                       # Main application shell
-│   ├── main.tsx                      # Vite React entry point
-│   └── index.css                     # Tailwind CSS tokens
-├── PRIVACY_ARCHITECTURE.md           # Formal privacy specification & flow diagram
-├── IMPLEMENTATION_PLAN.md            # Wave 1 implementation architecture
-└── README.md                         # Project documentation
+┌────────────────────────────────────────────────────────┐
+│               APPLICANT (PRIVATE CLIENT)               │
+│                                                        │
+│  [ Private Witness Vault (RAM) ]                       │
+│    • monthlyIncome = £4,720                            │
+│    • age = 28                                          │
+│    • country = 'UK'                                    │
+│    • employmentStatus = 'EMPLOYED'                     │
+│    • blindingSalt = 0x8f4d...                          │
+│                                                        │
+│  [ Midnight Compact Circuit ]                          │
+│    • assert(monthlyIncome >= 2500)                     │
+│    • assert(age >= 18)                                 │
+│    • assert(country == 'UK')                           │
+│    • assert(employmentStatus == 'EMPLOYED')            │
+│    • bind(policyHash, nonce)                           │
+│                 │                                      │
+│                 ▼                                      │
+│    [ ZK-SNARK Proof Artifact ]                         │
+└─────────────────┬──────────────────────────────────────┘
+                  │
+                  ▼ (Public Network Submission)
+┌────────────────────────────────────────────────────────┐
+│               MIDNIGHT NETWORK LEDGER                  │
+│                                                        │
+│  • Public Contract State: income_verifier.compact      │
+│  • Policy Hash: 0x9b4a... (Canonical Policy Rules)     │
+│  • Single-Use Nonce: blk_nonce_82f1 (Consumed)         │
+│  • Verified Boolean Outcome: QUALIFIED (true)          │
+│  • Salary Disclosed: 0 BYTES                           │
+└─────────────────┬──────────────────────────────────────┘
+                  │
+                  ▼ (Real-time Verifier Verification)
+┌────────────────────────────────────────────────────────┐
+│               RELIANT PARTY / VERIFIER                 │
+│                                                        │
+│  • Status: QUALIFIED                                   │
+│  • Attestation: All 4 Policy Criteria Satisfied        │
+│  • Private Data Exposed: 0 Bytes                       │
+│  • Action: Approve Tenancy Lease / Disburse Loan       │
+└────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 6. Privacy Model & Zero-Leakage Guarantee
+## Core Institutional Presets
 
-| Data Field | Location | Visibility | Midnight Security |
-| :--- | :--- | :--- | :--- |
-| **`monthly_income`** | Local Prover RAM | 🔒 **PRIVATE** | Never leaves witness memory |
-| **`salt`** | Local Prover RAM | 🔒 **PRIVATE** | 256-bit blinding factor |
-| **`required_income`** | Public Request | 🌐 **PUBLIC** | Public constraint parameter (£2,500) |
-| **`is_verified`** | Public State | 🌐 **PUBLIC** | Boolean output (`true` / `false`) |
-| **`proof_hash`** | Public Ledger | 🌐 **PUBLIC** | Cryptographic proof artifact |
-| **Salary in Verifier UI** | N/A | **REDACTED** | 0 bytes exposed |
+BlackoutPay supports multi-rule compound policies across major institutional sectors:
+
+| Preset Name | Target Verifiers | Compound Conditions Evaluated |
+| :--- | :--- | :--- |
+| **Residential Tenancy** | Letting agencies & landlords | Income $\ge$ £2,500/mo, Age $\ge$ 18, Residency = UK, Employed |
+| **Prime Mortgage Screening** | Banks & mortgage brokers | Income $\ge$ £5,000/mo, Bank Balance $\ge$ £25,000, Employed |
+| **Private Credit / SME Loan** | Fintech lenders & credit desks | Income $\ge$ £3,500/mo, Bank Balance $\ge$ £10,000, Employed |
+| **Accredited Investor Gate** | VC syndicates & token offerings | Annualized Income $\ge$ £15,000/mo OR Balance $\ge$ £100,000 |
 
 ---
 
-## 7. Running Locally
+## Quickstart & Local Setup
 
-### Prerequisites
-* Node.js v18+
-* npm or yarn
+### 1. Installation
 
-### Installation & Startup
 ```bash
-# 1. Install dependencies
+# Clone the repository
+git clone https://github.com/your-org/blackoutpay.git
+cd blackoutpay
+
+# Install dependencies
 npm install
-
-# 2. Run local development server
-npm run dev
-
-# 3. Open in browser
-# http://localhost:3000
 ```
 
----
-
-## 8. Testing
-
-Run the automated test suite verifying threshold logic, boundary conditions, and zero data leakage:
+### 2. Launch Development Server
 
 ```bash
-# Run TypeScript compilation check
-npm run lint
+npm run dev
+```
 
-# Build production bundle
+Visit `http://localhost:3000` to interact with the application.
+
+### 3. Run Automated Privacy & Security Tests
+
+Run the complete 10-point Zero-Knowledge and data leakage test suite:
+
+```bash
+npm test
+```
+
+### 4. Build Production Bundle
+
+```bash
 npm run build
 ```
 
-Inside the UI, click **"Tests"** in the navigation bar to run the live interactive test runner, which validates:
-* **TEST-01**: £4,720 vs £2,500 Threshold -> **PASS**
-* **TEST-02**: £2,500 vs £2,500 Boundary Match -> **PASS**
-* **TEST-03**: £2,499 vs £2,500 Below Threshold -> **FAIL**
-* **TEST-04**: £0 vs £2,500 Baseline -> **FAIL**
-* **TEST-05**: Zero-Knowledge Privacy Leakage Audit -> **0 Bytes salary exposure verified**
-* **TEST-06**: Tamper Resistance -> **Invalid witness commitments rejected**
+---
+
+## Test Suite Coverage
+
+The automated test suite (`src/tests/privacy.test.ts`) verifies the mathematical soundness and data minimization invariants:
+
+* **TEST-01**: Standard Above Threshold (£4,720 vs £2,500) $\to$ **PASS**
+* **TEST-02**: Exact Boundary Match (£2,500 vs £2,500) $\to$ **PASS**
+* **TEST-03**: Strict 1-Unit Below Threshold (£2,499 vs £2,500) $\to$ **FAIL**
+* **TEST-04**: Zero Baseline (£0 vs £2,500) $\to$ **FAIL**
+* **TEST-05**: Privacy Leakage Audit $\to$ **0 Bytes salary exposure verified**
+* **TEST-06**: Tamper Resistance $\to$ **Invalid witness commitments rejected**
+* **TEST-07**: Compound Multi-Rule Evaluation (Income + Age + Residency + Employment) $\to$ **PASS**
+* **TEST-08**: Partial Disqualification (Underage applicant age 16 vs 18) $\to$ **REJECTED**
+* **TEST-09**: Tampered Policy Rejection $\to$ **Policy digest mismatch rejected**
+* **TEST-10**: Replay Protection $\to$ **Single-use presentation nonce reuse blocked**
 
 ---
 
-## 9. 30-Second Hackathon Judge Demo
+## Documentation Index
 
-1. Click **"Try Demo (30s)"** in the top navigation or hero section.
-2. Review the scenario: **Alex** has a private monthly income of **£4,720**.
-3. Landlord requests proof for **Monthly income ≥ £2,500**.
-4. Click **"Generate ZK Proof"** to run the Midnight Compact zero-knowledge prover.
-5. Inspect the final **Verifier Screen**:
-   * Requirement: `Monthly income ≥ £2,500`
-   * Result: `✓ PASSED`
-   * Exact Salary: `Private (Redacted — 0 bytes revealed)`
+* [`ARCHITECTURE.md`](./ARCHITECTURE.md) - Deep dive into Midnight dual-state, Compact circuit design, and execution boundaries.
+* [`PRIVACY.md`](./PRIVACY.md) - Zero-knowledge mathematical foundations, data minimization audit, and GDPR Article 5(1)(c) compliance.
+* [`SECURITY.md`](./SECURITY.md) - Threat model, cryptographic policy binding, and replay attack mitigations.
+* [`DEMO.md`](./DEMO.md) - Rapid 2-minute judge walkthrough scenario.
 
 ---
 
-## 10. Buildathon Roadmap
+## License
 
-### Wave 1 — Private Income Proof (Current MVP)
-* Working threshold verification: **Prove income ≥ X without revealing income**.
-* Local witness state isolation and zero-knowledge commitment generation.
-* Midnight Compact smart contract definition (`income_verifier.compact`).
-* Public verifier portal and shareable verification requests.
-* Automated privacy leakage and boundary test suites.
-
-### Wave 2 — Private Financial Credentials (Future)
-* Multi-attribute proofs (e.g., employment duration + savings balance + recurring salary).
-* Direct Open Banking / payroll provider cryptographic attestation issuing.
-* Reusable zero-knowledge compliance passports.
-
-### Wave 3 — Blackout Pay Developer Network (Future)
-* Embeddable SDK and API for fintechs, landlords, and lenders:
-  ```typescript
-  const { isVerified } = await blackoutPay.requestIncomeProof({
-    minimumIncome: 2500,
-    currency: "GBP"
-  });
-  ```
+MIT License. Built for the Midnight Network Buildathon.

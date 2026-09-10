@@ -16,7 +16,7 @@ import { DEPLOYED_CONTRACT_ADDRESS } from '../midnight/zk-engine';
 
 export const DevelopersView: React.FC = () => {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'COMPACT' | 'SDK_PREVIEW' | 'ARCHITECTURE'>('COMPACT');
+  const [activeTab, setActiveTab] = useState<'COMPACT' | 'SDK_PREVIEW' | 'PAYROLL_SDK' | 'ARCHITECTURE'>('COMPACT');
 
   const compactContractCode = `// ============================================================================
 // BLACKOUT — MIDNIGHT NETWORK COMPACT SMART CONTRACT
@@ -122,6 +122,50 @@ const verification = await blackout.verifyProof(proofResult);
 console.log(verification.isSatisfied); // true (PASS)
 console.log(verification.privateIncomeDisclosed); // "0 BYTES"`;
 
+  const payrollSdkCode = `// ============================================================================
+// BLACK PAYROLL PROTOCOL SDK — [ SDK PREVIEW ]
+// Privacy-preserving on-chain compensation & batch payroll.
+// Status: Specification Preview (Wave 2/3 Roadmap — Non-Production)
+// ============================================================================
+
+import { BlackoutPayroll } from '@blackout/payroll-sdk'; // SDK Preview
+
+const payroll = new BlackoutPayroll({
+  network: 'midnight-testnet-02',
+  executionMode: 'DEMO' // 'DEMO' | 'LIVE'
+});
+
+// 1. Create a privacy-preserving payroll batch
+const batch = await blackout.payroll.create({
+  name: 'September Payroll',
+  period: '01 SEP — 30 SEP 2026',
+  paymentDate: '2026-09-30',
+  asset: 'USDC'
+});
+
+// 2. Add recipients with private compensation values
+await blackout.payroll.addRecipient(batch.id, {
+  employeeId: 'EMP-001',
+  label: 'Lead Protocol Cryptographer',
+  walletAddress: 'midnight1q88apexlettings2500req8923kf98s23kd',
+  paymentAmount: 4720,
+  currency: 'USDC'
+});
+
+// 3. Authorize batch under multi-signature and condition checks
+const auth = await blackout.payroll.authorize(batch.id, {
+  requireProofOfFunds: true,
+  requireEligibilityVerification: true
+});
+
+// 4. Execute private payroll (generates ZK proofs for zero compensation disclosure)
+const execution = await blackout.payroll.execute(batch.id);
+
+// 5. Query execution status & privacy verification
+const status = await blackout.payroll.status(batch.id);
+console.log(status.privacyStatus); // "COMPENSATION PRIVATE"
+console.log(status.publicCompensationDisclosed); // "0 BYTES"`;
+
   const handleCopy = (code: string, id: string) => {
     navigator.clipboard.writeText(code);
     setCopiedCode(id);
@@ -146,7 +190,7 @@ console.log(verification.privateIncomeDisclosed); // "0 BYTES"`;
         </div>
 
         {/* Tab Selector */}
-        <div className="flex items-center gap-1 font-mono text-xs uppercase">
+        <div className="flex flex-wrap items-center gap-1 font-mono text-xs uppercase">
           <button
             onClick={() => setActiveTab('COMPACT')}
             className={`px-3.5 py-2 transition-all cursor-pointer ${
@@ -165,7 +209,17 @@ console.log(verification.privateIncomeDisclosed); // "0 BYTES"`;
                 : 'bg-[#141414] text-[#8A8882] hover:text-[#E8E6DF]'
             }`}
           >
-            SDK API [WAVE 3 PREVIEW]
+            VERIFY SDK API [WAVE 3 PREVIEW]
+          </button>
+          <button
+            onClick={() => setActiveTab('PAYROLL_SDK')}
+            className={`px-3.5 py-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'PAYROLL_SDK'
+                ? 'bg-[#FF5A5F] text-black font-bold'
+                : 'bg-[#141414] text-[#8A8882] hover:text-[#E8E6DF]'
+            }`}
+          >
+            <span>BLACK PAYROLL API [SDK PREVIEW]</span>
           </button>
         </div>
       </div>
@@ -178,15 +232,31 @@ console.log(verification.privateIncomeDisclosed); // "0 BYTES"`;
           <div className="flex items-center gap-3">
             <span className="w-2 h-2 bg-[#FF5A5F]"></span>
             <span className="text-[#E8E6DF] font-bold">
-              {activeTab === 'COMPACT' ? 'contract/income_verifier.compact' : 'src/sdk/client.ts (WAVE 3 PREVIEW)'}
+              {activeTab === 'COMPACT' 
+                ? 'contract/income_verifier.compact' 
+                : activeTab === 'SDK_PREVIEW'
+                ? 'src/sdk/client.ts (WAVE 3 PREVIEW)'
+                : 'src/sdk/payroll.ts (SDK PREVIEW)'}
             </span>
             <span className="text-[10px] text-[#8A8882]">
-              {activeTab === 'COMPACT' ? '[ COMPACT DSL v0.20+ ]' : '[ SDK ROADMAP PREVIEW ]'}
+              {activeTab === 'COMPACT' 
+                ? '[ COMPACT DSL v0.20+ ]' 
+                : activeTab === 'SDK_PREVIEW'
+                ? '[ SDK ROADMAP PREVIEW ]'
+                : '[ BLACK PAYROLL SPECIFICATION PREVIEW ]'}
             </span>
           </div>
 
           <button
-            onClick={() => handleCopy(activeTab === 'COMPACT' ? compactContractCode : sdkPreviewCode, activeTab)}
+            onClick={() => {
+              const codeToCopy = 
+                activeTab === 'COMPACT' 
+                  ? compactContractCode 
+                  : activeTab === 'SDK_PREVIEW' 
+                  ? sdkPreviewCode 
+                  : payrollSdkCode;
+              handleCopy(codeToCopy, activeTab);
+            }}
             className="px-3 py-1.5 bg-[#181818] hover:bg-[#E8E6DF] hover:text-black border border-white/[0.1] text-[#E8E6DF] font-mono text-[11px] uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer"
           >
             {copiedCode === activeTab ? <Check className="w-3.5 h-3.5 text-[#26A17B]" /> : <Copy className="w-3.5 h-3.5" />}
@@ -197,7 +267,13 @@ console.log(verification.privateIncomeDisclosed); // "0 BYTES"`;
         {/* Code Content */}
         <div className="p-6 bg-[#090909] overflow-x-auto font-mono text-xs text-[#E8E6DF] leading-relaxed">
           <pre className="whitespace-pre">
-            <code>{activeTab === 'COMPACT' ? compactContractCode : sdkPreviewCode}</code>
+            <code>
+              {activeTab === 'COMPACT' 
+                ? compactContractCode 
+                : activeTab === 'SDK_PREVIEW' 
+                ? sdkPreviewCode 
+                : payrollSdkCode}
+            </code>
           </pre>
         </div>
 

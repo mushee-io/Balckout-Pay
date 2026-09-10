@@ -38,9 +38,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenDeployModal,
 }) => {
   const navItems = [
-    { id: 'prove', label: 'PROVE' },
+    { id: 'home', label: 'HOME' },
+    { id: 'prove', label: 'VERIFY' },
     { id: 'request', label: 'REQUEST' },
-    { id: 'verify', label: 'VERIFY' },
+    { id: 'verify', label: 'LEDGER' },
+    { id: 'payroll', label: 'BLACK PAYROLL', isSpecial: true },
     { id: 'developers', label: 'DEVELOPERS' },
   ];
 
@@ -116,7 +118,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </button>
 
-          {/* Center Navigation Links: PROVE, REQUEST, VERIFY, DEVELOPERS */}
+          {/* Center Navigation Links: HOME, VERIFY, REQUEST, LEDGER, BLACK PAYROLL, DEVELOPERS */}
           <nav className="hidden md:flex items-center gap-1 font-mono text-[11px] tracking-[0.2em] uppercase">
             {navItems.map((item) => {
               const isActive = activeTab === item.id;
@@ -125,15 +127,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                   key={item.id}
                   onClick={() => onSelectTab(item.id)}
                   id={`nav-link-${item.id}`}
-                  className={`px-3.5 py-1.5 transition-all relative cursor-pointer ${
+                  className={`px-3 py-1.5 transition-all relative cursor-pointer flex items-center gap-1.5 ${
                     isActive
                       ? 'text-[#E8E6DF] font-bold'
+                      : item.isSpecial
+                      ? 'text-[#FF5A5F] hover:text-white font-medium'
                       : 'text-[#8A8882] hover:text-[#E8E6DF]'
                   }`}
                 >
                   <span>{item.label}</span>
+                  {item.isSpecial && (
+                    <span className="text-[9px] px-1 py-0.2 bg-[#FF5A5F]/20 text-[#FF5A5F] border border-[#FF5A5F]/40 font-bold">
+                      NEW
+                    </span>
+                  )}
                   {isActive && (
-                    <span className="absolute bottom-0 left-3.5 right-3.5 h-[2px] bg-[#FF5A5F]"></span>
+                    <span className="absolute bottom-0 left-3 right-3 h-[2px] bg-[#FF5A5F]"></span>
                   )}
                 </button>
               );
@@ -208,20 +217,23 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
 
       {/* Mobile Sub-Navigation Bar */}
-      <div className="md:hidden flex items-center justify-around px-4 py-2 border-t border-white/[0.06] bg-[#0E0E0E] gap-2 font-mono text-[10px] tracking-[0.18em] uppercase">
+      <div className="md:hidden flex items-center justify-start overflow-x-auto px-4 py-2 border-t border-white/[0.06] bg-[#0E0E0E] gap-2 font-mono text-[10px] tracking-[0.18em] uppercase no-scrollbar">
         {navItems.map((item) => {
           const isActive = activeTab === item.id;
           return (
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              className={`px-3 py-1.5 transition-colors cursor-pointer ${
+              className={`px-2.5 py-1.5 whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1 ${
                 isActive
                   ? 'bg-[#E8E6DF] text-black font-bold'
+                  : item.isSpecial
+                  ? 'text-[#FF5A5F] border border-[#FF5A5F]/40'
                   : 'text-[#8A8882] hover:text-[#E8E6DF]'
               }`}
             >
-              {item.label}
+              <span>{item.label}</span>
+              {item.isSpecial && <span className="text-[8px] bg-[#FF5A5F] text-black px-1 font-bold">NEW</span>}
             </button>
           );
         })}

@@ -150,25 +150,25 @@ export const ContractDeploymentModal: React.FC<ContractDeploymentModalProps> = (
           initialState: {},
         });
       } else if (typeof api.submitTransaction === 'function') {
-        // Fallback standard extrinsic submission
         submission = await api.submitTransaction({
           type: 'DEPLOY_CONTRACT',
           contractName: 'income_verifier',
           network: 'preview'
         });
       } else {
-        // Provide standard Lace connector fallback format
-        const timestamp = Date.now().toString(16);
-        const derivedAddr = `mn_contract_prev1q${wallet.address.slice(12, 28)}${timestamp.slice(-6)}`;
-        const derivedTx = `0xdeploy_${timestamp}${Math.random().toString(16).slice(2, 10)}`;
-        submission = {
-          txHash: derivedTx,
-          contractAddress: derivedAddr
-        };
+        throw new Error(
+          'Connected Lace wallet does not support direct deployment via this connector interface. Please run "npm run midnight:deploy" in your terminal.'
+        );
       }
 
-      const confirmedTxHash = submission?.txHash || `0x${Date.now().toString(16)}`;
-      const confirmedContractAddr = submission?.contractAddress || `mn_contract_prev1q${wallet.address.slice(12, 32)}`;
+      if (!submission || !submission.txHash || !submission.contractAddress) {
+        throw new Error(
+          'Deployment transaction was rejected by user in Lace or failed to produce confirmed on-chain deployment details.'
+        );
+      }
+
+      const confirmedTxHash = submission.txHash;
+      const confirmedContractAddr = submission.contractAddress;
 
       setTxHash(confirmedTxHash);
       setContractAddress(confirmedContractAddr);

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { X, Lock, ShieldCheck, CheckCircle2, KeyRound } from 'lucide-react';
+import { X, Lock, ShieldCheck, CheckCircle2, KeyRound, AlertCircle } from 'lucide-react';
 import { CurrencyCode, PrivateIncomeCredential } from '../midnight/types';
-import { computeCommitment, generateSecureSalt } from '../midnight/zk-engine';
+import { computeCommitment, generateSecureSalt, validateWitnessIncome } from '../midnight/zk-engine';
 
 interface CreateCredentialModalProps {
   isOpen: boolean;
@@ -27,13 +27,24 @@ export const CreateCredentialModal: React.FC<CreateCredentialModalProps> = ({
   );
   const [isCreating, setIsCreating] = useState(false);
   const [createdSuccess, setCreatedSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
     const numIncome = parseFloat(income);
-    if (isNaN(numIncome) || numIncome < 0) {
+
+    try {
+      validateWitnessIncome(numIncome);
+    } catch (err: unknown) {
+      setErrorMessage(err instanceof Error ? err.message : 'Invalid income value.');
+      return;
+    }
+
+    if (numIncome > 100_000_000) {
+      setErrorMessage('Income exceeds allowable maximum limit (£100,000,000).');
       return;
     }
 
@@ -50,7 +61,7 @@ export const CreateCredentialModal: React.FC<CreateCredentialModalProps> = ({
         commitment,
         issuedAt: Date.now(),
         issuer: 'Self-Asserted (Demo / Wave 1)',
-        label: label || 'Monthly Net Income',
+        label: label.trim() || 'Monthly Net Income',
         status: 'READY',
         isDemo: true,
       };
@@ -61,8 +72,9 @@ export const CreateCredentialModal: React.FC<CreateCredentialModalProps> = ({
       setIsCreating(false);
       setCreatedSuccess(false);
       onClose();
-    } catch {
+    } catch (err: unknown) {
       setIsCreating(false);
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to generate commitment.');
     }
   };
 
@@ -133,6 +145,14 @@ export const CreateCredentialModal: React.FC<CreateCredentialModalProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Error message */}
+        {errorMessage && (
+          <div className="my-3 p-3 bg-[#1A0A0A] border border-[#FF5A5F]/60 text-[#FF5A5F] flex items-center gap-2 text-xs font-mono">
+            <AlertCircle className="w-4 h-4 shrink-0 text-[#FF5A5F]" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
 
         {/* Form */}
         <form onSubmit={handleCreate} className="space-y-4 font-mono text-xs">

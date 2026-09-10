@@ -66,7 +66,7 @@ export const ProofGenerationModal: React.FC<ProofGenerationModalProps> = ({
     try {
       const result = await proveIncomeThreshold(
         credential,
-        request.requiredIncome,
+        request,
         request.id,
         wallet.network,
         wallet.mode,
@@ -162,12 +162,35 @@ export const ProofGenerationModal: React.FC<ProofGenerationModalProps> = ({
           <div className="text-sm font-bold text-[#E8E6DF] font-sans uppercase">
             {request.title}
           </div>
-          <div className="flex items-center justify-between pt-2 border-t border-white/[0.06] text-xs">
-            <span className="text-[#8A8882]">CONDITION TO PROVE:</span>
-            <span className="font-bold text-[#FF5A5F]">
-              Income ≥ {request.currency === 'GBP' ? '£' : request.currency === 'EUR' ? '€' : '$'}{request.requiredIncome.toLocaleString()}/MO
-            </span>
-          </div>
+
+          {request.rules && request.rules.length > 0 ? (
+            <div className="space-y-1.5 pt-2 border-t border-white/[0.06]">
+              <span className="text-[10px] text-[#8A8882] uppercase block">
+                POLICY CRITERIA TO SATISFY ({request.rules.length} CONDITIONS):
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {request.rules.map((rule, idx) => (
+                  <div key={rule.id || idx} className="p-2 bg-[#121212] border border-white/[0.06] flex items-center justify-between text-[11px]">
+                    <span className="text-[#8A8882]">{rule.label}</span>
+                    <span className="font-bold text-[#FF5A5F]">{rule.displayTarget}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between pt-2 border-t border-white/[0.06] text-xs">
+              <span className="text-[#8A8882]">CONDITION TO PROVE:</span>
+              <span className="font-bold text-[#FF5A5F]">
+                Income ≥ {request.currency === 'GBP' ? '£' : request.currency === 'EUR' ? '€' : '$'}{request.requiredIncome.toLocaleString()}/MO
+              </span>
+            </div>
+          )}
+
+          {request.policyHash && (
+            <div className="text-[9px] text-[#8A8882] pt-1 truncate">
+              POLICY DIGEST: <span className="text-[#E8E6DF]">{request.policyHash}</span>
+            </div>
+          )}
         </div>
 
         {/* Missing Credential Warning */}
@@ -282,25 +305,56 @@ export const ProofGenerationModal: React.FC<ProofGenerationModalProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-5 h-5 text-[#26A17B]" />
-                    <h4 className="text-base font-bold text-[#E8E6DF] uppercase">REQUIREMENT VERIFIED</h4>
+                    <h4 className="text-base font-bold text-[#E8E6DF] uppercase">ALL CRITERIA SATISFIED — QUALIFIED</h4>
                   </div>
-                  <span className="px-2 py-0.5 bg-[#26A17B]/20 text-[#26A17B] text-[10px] font-bold">
+                  <span className="px-2 py-0.5 bg-[#26A17B]/20 text-[#26A17B] text-[10px] font-bold border border-[#26A17B]/40">
                     PASS
                   </span>
                 </div>
 
                 <div className="text-xs text-[#26A17B]">
-                  ✓ Monthly income privately satisfies requirement: ≥ £{request.requiredIncome.toLocaleString()}
+                  ✓ Zero-knowledge evaluation confirmed: applicant qualifies under all specified policy constraints.
                 </div>
 
+                {/* Compound Rules Breakdown if multi-rule */}
+                {proofResult.ruleResults && proofResult.ruleResults.length > 0 && (
+                  <div className="p-3 bg-[#090909] border border-white/[0.08] space-y-1.5">
+                    <div className="text-[10px] uppercase text-[#8A8882] tracking-wider">
+                      ITEMIZED POLICY CONSTRAINT RESULTS ({proofResult.requirementsSatisfied}/{proofResult.requirementsTotal} SATISFIED):
+                    </div>
+                    <div className="space-y-1">
+                      {proofResult.ruleResults.map((r, i) => (
+                        <div key={i} className="flex items-center justify-between text-[11px]">
+                          <span className="text-[#E8E6DF]">{r.label}</span>
+                          <span className="text-[#26A17B] font-bold flex items-center gap-1">
+                            <Check className="w-3 h-3" />
+                            <span>SATISFIED</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Zero-disclosure leakage audit */}
                 <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-[#26A17B]/30">
                   <div className="p-2.5 bg-[#090909] border border-white/[0.08]">
-                    <span className="text-[#8A8882] block text-[9px] uppercase">EXACT INCOME DISCLOSED:</span>
+                    <span className="text-[#8A8882] block text-[9px] uppercase">EXACT SALARY DISCLOSED:</span>
                     <strong className="text-[#E8E6DF] font-bold">0 BYTES</strong>
                   </div>
                   <div className="p-2.5 bg-[#090909] border border-white/[0.08]">
                     <span className="text-[#8A8882] block text-[9px] uppercase">WITNESS LEAKAGE:</span>
                     <strong className="text-[#26A17B] font-bold">0% (SEALED)</strong>
+                  </div>
+                </div>
+
+                {/* Unrevealed attributes summary */}
+                <div className="p-2.5 bg-[#090909] border border-white/[0.06] text-[10px] text-[#8A8882] space-y-1">
+                  <div className="text-[#E8E6DF] font-bold uppercase tracking-wider text-[9px]">
+                    OMITTED PRIVATE ATTRIBUTES (ZERO EXPOSURE):
+                  </div>
+                  <div className="text-[#8A8882]">
+                    Exact salary, exact age, DOB, home address, bank balance, employer payroll numbers.
                   </div>
                 </div>
 
@@ -313,20 +367,39 @@ export const ProofGenerationModal: React.FC<ProofGenerationModalProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <XCircle className="w-5 h-5 text-[#FF5A5F]" />
-                    <h4 className="text-base font-bold text-[#E8E6DF] uppercase">REQUIREMENT NOT SATISFIED</h4>
+                    <h4 className="text-base font-bold text-[#E8E6DF] uppercase">CRITERIA NOT SATISFIED — REJECTED</h4>
                   </div>
-                  <span className="px-2 py-0.5 bg-[#FF5A5F]/20 text-[#FF5A5F] text-[10px] font-bold">
+                  <span className="px-2 py-0.5 bg-[#FF5A5F]/20 text-[#FF5A5F] text-[10px] font-bold border border-[#FF5A5F]/40">
                     FAIL
                   </span>
                 </div>
 
                 <div className="text-xs text-[#FF5A5F]">
-                  ✗ Monthly income does not meet the requested threshold of £{request.requiredIncome.toLocaleString()}.
+                  ✗ Applicant witness does not satisfy all required policy rules.
                 </div>
+
+                {/* Compound Rules Breakdown for failure */}
+                {proofResult.ruleResults && proofResult.ruleResults.length > 0 && (
+                  <div className="p-3 bg-[#090909] border border-white/[0.08] space-y-1.5">
+                    <div className="text-[10px] uppercase text-[#8A8882] tracking-wider">
+                      EVALUATION RESULTS ({proofResult.requirementsSatisfied}/{proofResult.requirementsTotal} SATISFIED):
+                    </div>
+                    <div className="space-y-1">
+                      {proofResult.ruleResults.map((r, i) => (
+                        <div key={i} className="flex items-center justify-between text-[11px]">
+                          <span className="text-[#E8E6DF]">{r.label}</span>
+                          <span className={r.satisfied ? "text-[#26A17B] font-bold" : "text-[#FF5A5F] font-bold"}>
+                            {r.satisfied ? '✓ SATISFIED' : '✗ NOT MET'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-[#FF5A5F]/30">
                   <div className="p-2.5 bg-[#090909] border border-white/[0.08]">
-                    <span className="text-[#8A8882] block text-[9px] uppercase">EXACT INCOME DISCLOSED:</span>
+                    <span className="text-[#8A8882] block text-[9px] uppercase">EXACT SALARY DISCLOSED:</span>
                     <strong className="text-[#E8E6DF] font-bold">0 BYTES</strong>
                   </div>
                   <div className="p-2.5 bg-[#090909] border border-white/[0.08]">
@@ -336,7 +409,7 @@ export const ProofGenerationModal: React.FC<ProofGenerationModalProps> = ({
                 </div>
 
                 <div className="text-[10px] text-[#8A8882] pt-1">
-                  Verifier receives only the failed boolean. They do not know your exact income or shortfall.
+                  Verifier receives only the failed boolean. They do not know which private value caused the shortfall.
                 </div>
               </div>
             )}

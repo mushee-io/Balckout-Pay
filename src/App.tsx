@@ -31,13 +31,17 @@ import {
 } from './midnight/wallet-connector';
 import { compactLedger } from './midnight/compact-verifier';
 import { computeCommitment, generateSecureSalt } from './midnight/zk-engine';
+import { PayrollDashboard } from './payroll/components/PayrollDashboard';
 
 export default function App() {
   // Hash Routing State (Default to 'home' landing page)
   const [activeTab, setActiveTab] = useState<string>(() => {
     const hash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
-    if (['prove', 'request', 'developers', 'verify'].includes(hash)) {
+    if (['prove', 'request', 'developers', 'verify', 'payroll'].includes(hash)) {
       return hash;
+    }
+    if (typeof window !== 'undefined' && window.location.pathname.toLowerCase().includes('payroll')) {
+      return 'payroll';
     }
     return 'home';
   });
@@ -77,7 +81,7 @@ export default function App() {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
-      if (['prove', 'request', 'developers', 'verify'].includes(hash)) {
+      if (['prove', 'request', 'developers', 'verify', 'payroll'].includes(hash)) {
         setActiveTab(hash);
       } else if (hash === 'home' || hash === '' || hash === '/') {
         setActiveTab('home');
@@ -108,6 +112,12 @@ export default function App() {
         id: 'cred_alex_primary_01',
         monthlyIncome: 4720,
         currency: 'GBP',
+        age: 26,
+        country: 'United Kingdom',
+        employmentStatus: 'EMPLOYED',
+        bankBalance: 38400,
+        kycStatus: 'VERIFIED',
+        accreditedInvestor: true,
         salt,
         commitment,
         issuedAt: Date.now() - 86400000 * 3,
@@ -232,6 +242,14 @@ export default function App() {
             request={selectedRequestForVerifier || requests[0]}
             onBack={() => handleNavigateTab('prove')}
             allRequests={requests}
+          />
+        )}
+
+        {activeTab === 'payroll' && (
+          <PayrollDashboard
+            onNavigateToVerify={() => handleNavigateTab('prove')}
+            walletMode={wallet.mode}
+            onSwitchWalletMode={(mode) => handleConnectWallet(mode)}
           />
         )}
       </main>

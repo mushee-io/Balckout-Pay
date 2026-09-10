@@ -53,30 +53,43 @@ export circuit prove_income_threshold(
     const private_income: Uint<64> = get_private_monthly_income();
     const private_salt: Bytes<32> = get_private_income_salt();
 
-    // 2. Cryptographic commitment calculation (Poseidon hash of private witness)
-    const computed_commitment: Bytes<32> = poseidon_hash_2(
-        private_income as Field, 
-        private_salt as Field
-    );
+    // 2. Cryptographic commitment calculation (Persistent hash of private witness)
+    const computed_commitment: Bytes<32> = persistentHash<[Uint<64>, Bytes<32>]>([private_income, private_salt]);
 
-    // 3. Evaluate the private threshold constraint in Zero-Knowledge
-    const is_satisfied: Boolean = private_income >= required_income;
+    // 3. Evaluate the private threshold constraint inside ZK
+    const is_satisfied: Boolean = disclose(private_income >= required_income);
+    const disclosed_commitment: Bytes<32> = disclose(computed_commitment);
 
     // 4. Update ledger state atomically with only the public verification result
-    records.insert(request_id, VerificationRecord {
-        request_id: request_id,
-        required_income: required_income,
+    records.insert(disclose(request_id), VerificationRecord {
+        request_id: disclose(request_id),
+        required_income: disclose(required_income),
         is_verified: is_satisfied,
-        timestamp: timestamp,
-        verifier_pk: verifier_pk,
-        commitment: computed_commitment
+        timestamp: disclose(timestamp),
+        verifier_pk: disclose(verifier_pk),
+        commitment: disclosed_commitment
     });
 
-    total_verifications.increment(1);
-
     // 5. Return boolean verification outcome
-    // Notice: private_income NEVER appears in public ledger, state, or return value!
     return is_satisfied;
+}
+
+// Circuit: Verifier registration of a verification request
+export circuit register_verification_request(
+    request_id: Bytes<32>,
+    required_income: Uint<64>,
+    verifier_pk: Bytes<32>,
+    timestamp: Uint<64>
+): [] {
+    records.insert(disclose(request_id), VerificationRecord {
+        request_id: disclose(request_id),
+        required_income: disclose(required_income),
+        is_verified: false,
+        timestamp: disclose(timestamp),
+        verifier_pk: disclose(verifier_pk),
+        commitment: default<Bytes<32>>
+    });
+    return [];
 }`;
 
   const handleCopy = (code: string) => {

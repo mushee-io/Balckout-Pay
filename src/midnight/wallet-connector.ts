@@ -68,6 +68,16 @@ export function getInjectedMidnightWallets(): DiscoveredMidnightWallet[] {
   return wallets;
 }
 
+let activeLaceApi: any = null;
+
+export function getActiveLaceApi(): any {
+  return activeLaceApi;
+}
+
+export function setActiveLaceApi(api: any): void {
+  activeLaceApi = api;
+}
+
 export function isLaceMidnightAvailable(): boolean {
   const wallets = getInjectedMidnightWallets();
   return wallets.length > 0;
@@ -116,6 +126,7 @@ export async function connectLiveLaceWallet(
     // Standard DApp Connector API v4: connect(networkId)
     if (typeof selectedWallet.api.connect === 'function') {
       const connectedApi = await selectedWallet.api.connect(networkId);
+      activeLaceApi = connectedApi;
       
       // Hint usage for permission acquisition
       if (typeof connectedApi.hintUsage === 'function') {

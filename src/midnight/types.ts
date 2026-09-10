@@ -13,18 +13,57 @@ export type MidnightNetwork =
   | 'Midnight DevNet' 
   | 'Midnight Local Sandbox';
 
-export interface PrivateIncomeCredential {
+export type PolicyRuleCategory = 
+  | 'INCOME' 
+  | 'AGE' 
+  | 'RESIDENCY' 
+  | 'EMPLOYMENT' 
+  | 'BANK_BALANCE' 
+  | 'KYC_STATUS' 
+  | 'ACCREDITED_INVESTOR' 
+  | 'MEMBERSHIP' 
+  | 'ONCHAIN_CONDITION';
+
+export type PolicyRuleOperator = 'GTE' | 'LTE' | 'EQ' | 'IN';
+export type RuleCategory = PolicyRuleCategory;
+
+export interface PolicyRule {
   id: string;
-  monthlyIncome: number; // Stored STRICTLY in local client witness memory — never posted to ledger
-  currency: CurrencyCode;
-  salt: string; // 256-bit blinding nonce
-  commitment: string; // Public cryptographic commitment: persistentHash(income, salt)
-  issuedAt: number;
-  issuer: string;
+  category: PolicyRuleCategory;
   label: string;
+  operator: PolicyRuleOperator;
+  targetValue: string | number | boolean;
+  displayTarget: string;
+}
+
+export type IssuerType = 'DEMO_CREDENTIAL' | 'VERIFIED_EXTERNAL_ISSUER';
+
+export interface PrivateCredential {
+  id: string;
+  label: string;
+  // Private witness attributes stored strictly in local client memory
+  monthlyIncome: number;
+  currency: CurrencyCode;
+  age?: number;
+  country?: string;
+  employmentStatus?: 'EMPLOYED' | 'SELF_EMPLOYED' | 'STUDENT' | 'RETIRED' | 'OTHER';
+  bankBalance?: number;
+  kycStatus?: 'VERIFIED' | 'TIER_1' | 'TIER_2' | 'PENDING';
+  accreditedInvestor?: boolean;
+  
+  // Cryptographic binding
+  salt: string; // 256-bit blinding nonce
+  commitment: string; // Public cryptographic commitment: persistentHash(witness, salt)
+  issuedAt: number;
+  expiresAt?: number;
+  issuer: string;
+  issuerType?: IssuerType;
   status: 'READY' | 'ACTIVE' | 'REVOKED';
   isDemo?: boolean;
 }
+
+// Backwards-compatible alias for existing references
+export type PrivateIncomeCredential = PrivateCredential;
 
 export type VerificationPurpose = 
   | 'Rental Affordability'
@@ -32,17 +71,24 @@ export type VerificationPurpose =
   | 'Car Lease Approval'
   | 'Commercial Lease'
   | 'Credit & Loan Eligibility'
+  | 'KYC & Compliance Screening'
+  | 'Accredited Investor Access'
   | 'Custom Financial Requirement';
 
 export interface VerificationRequest {
-  id: string;
+  id: string; // e.g. blk_req_9821
+  policyId: string; // e.g. blk_policy_842a
   title: string;
   purpose: VerificationPurpose;
-  requiredIncome: number;
+  rules: PolicyRule[];
+  requiredIncome: number; // Primary Compact circuit threshold
   currency: CurrencyCode;
   verifierName: string;
   verifierAddress: string;
   createdAt: number;
+  expiresAt: number;
+  nonce: string; // Cryptographic request nonce
+  policyHash: string; // Cryptographic digest of rules, nonce, and verifier
   status: 'PENDING' | 'VERIFIED' | 'REJECTED';
   proofResult?: ZkProofResult;
   notes?: string;
@@ -59,29 +105,50 @@ export type ProverStep =
   | 'COMPLETED'
   | 'FAILED';
 
+export interface RuleEvaluationResult {
+  ruleId: string;
+  category: PolicyRuleCategory;
+  label: string;
+  satisfied: boolean;
+  operator: PolicyRuleOperator;
+  displayTarget: string;
+}
+
 export interface ZkProofResult {
   requestId: string;
+  policyId: string;
+  policyHash: string;
+  nonce: string;
   isVerified: boolean;
+  requirementsSatisfied: number;
+  requirementsTotal: number;
+  ruleResults: RuleEvaluationResult[];
   threshold: number;
   currency: CurrencyCode;
-  proofHash: string;
+  proofHash?: string;
   commitmentHash: string;
   timestamp: number;
+  expiresAt: number;
   executionTimeMs: number;
   circuitName: string;
   contractAddress: string;
   midnightNetwork: MidnightNetwork;
-  blockHeight: number;
-  proofBytesHex: string;
+  blockHeight?: number;
+  proofBytesHex?: string;
   mode: ExecutionMode;
-  txHash: string;
+  txHash?: string;
   publicOutputs: {
     is_satisfied: boolean;
     required_income: number;
     threshold_currency: CurrencyCode;
+    policy_id: string;
+    requirements_satisfied: number;
+    requirements_total: number;
   };
-  // Audit confirmation that income was omitted
+  // Audit confirmation that income and private witness values were omitted
   privateIncomeDisclosed: '0 BYTES';
+  privateWitnessDisclosed: '0 BYTES';
+  unrevealedFields: string[];
 }
 
 export interface WalletState {
