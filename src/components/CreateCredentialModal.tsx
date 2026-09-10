@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { X, Lock, ShieldCheck, CheckCircle2, KeyRound, AlertCircle } from 'lucide-react';
-import { CurrencyCode, PrivateIncomeCredential } from '../midnight/types';
+import React, { useEffect, useState } from 'react';
+import { X, Lock, KeyRound, AlertCircle } from 'lucide-react';
+import { CurrencyCode, ExecutionMode, PrivateIncomeCredential } from '../midnight/types';
 import { computeCommitment, generateSecureSalt, validateWitnessIncome } from '../midnight/zk-engine';
 
 interface CreateCredentialModalProps {
@@ -8,6 +8,7 @@ interface CreateCredentialModalProps {
   onClose: () => void;
   onSaveCredential: (credential: PrivateIncomeCredential) => void;
   initialCredential?: PrivateIncomeCredential | null;
+  mode?: ExecutionMode;
 }
 
 export const CreateCredentialModal: React.FC<CreateCredentialModalProps> = ({
@@ -15,31 +16,37 @@ export const CreateCredentialModal: React.FC<CreateCredentialModalProps> = ({
   onClose,
   onSaveCredential,
   initialCredential,
+  mode = 'DEMO',
 }) => {
-  const [income, setIncome] = useState<string>(
-    initialCredential ? initialCredential.monthlyIncome.toString() : '4720'
-  );
-  const [currency, setCurrency] = useState<CurrencyCode>(
-    initialCredential ? initialCredential.currency : 'GBP'
-  );
-  const [label, setLabel] = useState<string>(
-    initialCredential ? initialCredential.label : 'Primary Employment Income'
-  );
+  const defaultIncome = mode === 'DEMO' ? '4720' : '';
+  const defaultLabel = mode === 'DEMO' ? 'Primary Employment Income' : 'Private Monthly Income';
+
+  const [income, setIncome] = useState<string>(initialCredential ? initialCredential.monthlyIncome.toString() : defaultIncome);
+  const [currency, setCurrency] = useState<CurrencyCode>(initialCredential ? initialCredential.currency : 'GBP');
+  const [label, setLabel] = useState<string>(initialCredential ? initialCredential.label : defaultLabel);
   const [isCreating, setIsCreating] = useState(false);
   const [createdSuccess, setCreatedSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setIncome(initialCredential ? initialCredential.monthlyIncome.toString() : (mode === 'DEMO' ? '4720' : ''));
+    setCurrency(initialCredential ? initialCredential.currency : 'GBP');
+    setLabel(initialCredential ? initialCredential.label : (mode === 'DEMO' ? 'Primary Employment Income' : 'Private Monthly Income'));
+    setErrorMessage(null);
+    setCreatedSuccess(false);
+  }, [isOpen, initialCredential, mode]);
 
   if (!isOpen) return null;
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
-    const numIncome = parseFloat(income);
+    const numIncome = Number(income);
+    const validation = validateWitnessIncome(numIncome);
 
-    try {
-      validateWitnessIncome(numIncome);
-    } catch (err: unknown) {
-      setErrorMessage(err instanceof Error ? err.message : 'Invalid income value.');
+    if (!validation.valid) {
+      setErrorMessage(validation.error || 'Invalid income value.');
       return;
     }
 
@@ -60,14 +67,14 @@ export const CreateCredentialModal: React.FC<CreateCredentialModalProps> = ({
         salt,
         commitment,
         issuedAt: Date.now(),
-        issuer: 'Self-Asserted (Demo / Wave 1)',
+        issuer: mode === 'LIVE' ? 'Self-Asserted Local Witness (Midnight Preview)' : 'Self-Asserted (Demo / Wave 1)',
         label: label.trim() || 'Monthly Net Income',
         status: 'READY',
-        isDemo: true,
+        isDemo: mode !== 'LIVE',
       };
 
       setCreatedSuccess(true);
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 350));
       onSaveCredential(credential);
       setIsCreating(false);
       setCreatedSuccess(false);
@@ -85,11 +92,7 @@ export const CreateCredentialModal: React.FC<CreateCredentialModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200 font-sans select-none">
-      <div 
-        className="w-full max-w-lg bg-[#0E0E0E] border border-white/[0.12] p-6 sm:p-8 relative text-left shadow-2xl rounded-[2px]"
-        id="modal-create-credential"
-      >
-        {/* Header */}
+      <div className="w-full max-w-lg bg-[#0E0E0E] border border-white/[0.12] p-6 sm:p-8 relative text-left shadow-2xl rounded-[2px]" id="modal-create-credential">
         <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
           <div className="space-y-1">
             <div className="text-[10px] font-mono tracking-[0.2em] text-[#FF5A5F] uppercase font-bold">
@@ -99,83 +102,57 @@ export const CreateCredentialModal: React.FC<CreateCredentialModalProps> = ({
               CONFIGURE PRIVATE CREDENTIAL.
             </h3>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 text-[#8A8882] hover:text-[#E8E6DF] transition-colors cursor-pointer"
-          >
+          <button onClick={onClose} className="p-1 text-[#8A8882] hover:text-[#E8E6DF] transition-colors cursor-pointer">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Informational Banner */}
         <div className="my-4 p-3.5 bg-[#090909] border border-white/[0.08] text-xs font-mono text-[#8A8882] leading-relaxed">
-          Your income is stored in local client RAM to generate proofs. Verifiers receive only the boolean verification outcome.
+          {mode === 'LIVE'
+            ? 'LIVE MODE: enter the private value you want Midnight to prove. It stays in client RAM and is never written to browser storage.'
+            : 'DEMO MODE: local testing only. Verifiers receive only the boolean verification outcome.'}
         </div>
 
-        {/* Quick Demo Presets */}
-        <div className="mb-4 space-y-2">
-          <div className="text-[10px] font-mono text-[#8A8882] uppercase flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 bg-[#FF5A5F]"></span>
-            <span>PRESETS FOR TESTING & EVALUATION:</span>
+        {mode === 'DEMO' && (
+          <div className="mb-4 space-y-2">
+            <div className="text-[10px] font-mono text-[#8A8882] uppercase flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 bg-[#FF5A5F]"></span>
+              <span>DEMO PRESETS:</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 font-mono">
+              <button type="button" onClick={() => setPreset(4720, 'Alex — Tech Lead Income')} className="p-2 bg-[#121212] hover:bg-[#181818] border border-white/[0.08] hover:border-white/[0.2] text-[11px] text-left transition-colors cursor-pointer">
+                <div className="font-bold text-[#E8E6DF]">£4,720/mo</div>
+                <div className="text-[9px] text-[#26A17B]">Pass Scenario</div>
+              </button>
+              <button type="button" onClick={() => setPreset(2500, 'Exact Threshold Match')} className="p-2 bg-[#121212] hover:bg-[#181818] border border-white/[0.08] hover:border-white/[0.2] text-[11px] text-left transition-colors cursor-pointer">
+                <div className="font-bold text-[#E8E6DF]">£2,500/mo</div>
+                <div className="text-[9px] text-[#8A8882]">Exact Boundary</div>
+              </button>
+              <button type="button" onClick={() => setPreset(2499, 'Below Threshold Match')} className="p-2 bg-[#121212] hover:bg-[#181818] border border-white/[0.08] hover:border-white/[0.2] text-[11px] text-left transition-colors cursor-pointer">
+                <div className="font-bold text-[#FF5A5F]">£2,499/mo</div>
+                <div className="text-[9px] text-[#FF5A5F]">Fail Scenario</div>
+              </button>
+            </div>
           </div>
-          <div className="grid grid-cols-3 gap-2 font-mono">
-            <button
-              type="button"
-              onClick={() => setPreset(4720, 'Alex — Tech Lead Income')}
-              className="p-2 bg-[#121212] hover:bg-[#181818] border border-white/[0.08] hover:border-white/[0.2] text-[11px] text-left transition-colors cursor-pointer"
-            >
-              <div className="font-bold text-[#E8E6DF]">£4,720/mo</div>
-              <div className="text-[9px] text-[#26A17B]">Pass Scenario</div>
-            </button>
-            <button
-              type="button"
-              onClick={() => setPreset(2500, 'Exact Threshold Match')}
-              className="p-2 bg-[#121212] hover:bg-[#181818] border border-white/[0.08] hover:border-white/[0.2] text-[11px] text-left transition-colors cursor-pointer"
-            >
-              <div className="font-bold text-[#E8E6DF]">£2,500/mo</div>
-              <div className="text-[9px] text-[#8A8882]">Exact Boundary</div>
-            </button>
-            <button
-              type="button"
-              onClick={() => setPreset(2499, 'Below Threshold Match')}
-              className="p-2 bg-[#121212] hover:bg-[#181818] border border-white/[0.08] hover:border-white/[0.2] text-[11px] text-left transition-colors cursor-pointer"
-            >
-              <div className="font-bold text-[#FF5A5F]">£2,499/mo</div>
-              <div className="text-[9px] text-[#FF5A5F]">Fail Scenario</div>
-            </button>
-          </div>
-        </div>
+        )}
 
-        {/* Error message */}
         {errorMessage && (
           <div className="my-3 p-3 bg-[#1A0A0A] border border-[#FF5A5F]/60 text-[#FF5A5F] flex items-center gap-2 text-xs font-mono">
-            <AlertCircle className="w-4 h-4 shrink-0 text-[#FF5A5F]" />
+            <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{errorMessage}</span>
           </div>
         )}
 
-        {/* Form */}
         <form onSubmit={handleCreate} className="space-y-4 font-mono text-xs">
           <div>
             <label className="block text-[10px] text-[#8A8882] uppercase mb-1">Credential Name</label>
-            <input
-              type="text"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g. Primary Net Monthly Income"
-              className="w-full px-3 py-2.5 bg-[#090909] border border-white/[0.1] text-[#E8E6DF] text-xs focus:outline-none focus:border-[#FF5A5F]"
-              required
-            />
+            <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Primary Net Monthly Income" className="w-full px-3 py-2.5 bg-[#090909] border border-white/[0.1] text-[#E8E6DF] text-xs focus:outline-none focus:border-[#FF5A5F]" required />
           </div>
 
           <div className="grid grid-cols-3 gap-2">
             <div>
               <label className="block text-[10px] text-[#8A8882] uppercase mb-1">Currency</label>
-              <select
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
-                className="w-full px-3 py-2.5 bg-[#090909] border border-white/[0.1] text-[#E8E6DF] text-xs focus:outline-none"
-              >
+              <select value={currency} onChange={(e) => setCurrency(e.target.value as CurrencyCode)} className="w-full px-3 py-2.5 bg-[#090909] border border-white/[0.1] text-[#E8E6DF] text-xs focus:outline-none">
                 <option value="GBP">GBP (£)</option>
                 <option value="EUR">EUR (€)</option>
                 <option value="USD">USD ($)</option>
@@ -190,40 +167,20 @@ export const CreateCredentialModal: React.FC<CreateCredentialModalProps> = ({
                   <span>SEALED IN RAM</span>
                 </span>
               </div>
-              <input
-                type="number"
-                min="0"
-                step="1"
-                value={income}
-                onChange={(e) => setIncome(e.target.value)}
-                placeholder="4720"
-                className="w-full px-3 py-2.5 bg-[#090909] border border-white/[0.1] text-[#E8E6DF] font-bold text-xs focus:outline-none focus:border-[#FF5A5F]"
-                required
-              />
+              <input type="number" min="0" step="1" value={income} onChange={(e) => setIncome(e.target.value)} placeholder={mode === 'LIVE' ? 'Enter private income' : '4720'} className="w-full px-3 py-2.5 bg-[#090909] border border-white/[0.1] text-[#E8E6DF] font-bold text-xs focus:outline-none focus:border-[#FF5A5F]" required />
             </div>
           </div>
 
           <div className="p-3 bg-[#090909] border border-white/[0.08] text-[10px] text-[#8A8882] flex items-start gap-2">
             <KeyRound className="w-3.5 h-3.5 text-[#FF5A5F] shrink-0 mt-0.5" />
             <div>
-              <span className="font-bold text-[#E8E6DF]">Zero-Knowledge Commitment:</span> A cryptographic commitment will be generated locally. The raw salary value never leaves client-side witness memory.
+              <span className="font-bold text-[#E8E6DF]">Zero-Knowledge Commitment:</span> generated locally. Raw salary stays in client-side witness memory.
             </div>
           </div>
 
           <div className="pt-2">
-            <button
-              type="submit"
-              disabled={isCreating}
-              id="btn-submit-create-credential"
-              className="w-full py-3.5 px-4 bg-[#E8E6DF] text-black hover:bg-white font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer rounded-[2px]"
-            >
-              {isCreating ? (
-                <span>SYNTHESIZING COMMITMENT...</span>
-              ) : createdSuccess ? (
-                <span>CREDENTIAL STORED IN RAM</span>
-              ) : (
-                <span>SEAL PRIVATE CREDENTIAL</span>
-              )}
+            <button type="submit" disabled={isCreating} id="btn-submit-create-credential" className="w-full py-3.5 px-4 bg-[#E8E6DF] text-black hover:bg-white font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer rounded-[2px]">
+              {isCreating ? 'SYNTHESIZING COMMITMENT...' : createdSuccess ? 'CREDENTIAL STORED IN RAM' : 'SEAL PRIVATE CREDENTIAL'}
             </button>
           </div>
         </form>
