@@ -311,7 +311,7 @@ export const ContractDeploymentModal: React.FC<ContractDeploymentModalProps> = (
                   <Terminal className="w-3.5 h-3.5" /> Deployment Payload Summary
                 </div>
                 <ul className="text-[11px] text-zinc-400 space-y-1 font-mono list-disc list-inside">
-                  <li>Contract: income_verifier.compact (Compact v0.34.0)</li>
+                  <li>Contract: income_verifier.compact (Compact v0.31.1)</li>
                   <li>Circuits: prove_income_threshold, register_verification_request</li>
                   <li>Target: Midnight Preview TestNet (Node & Indexer v3)</li>
                   <li>Witness Mode: Off-chain client witness RAM (0-byte salary leakage)</li>
