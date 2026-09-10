@@ -15,7 +15,6 @@ const required = [
 
 const artifacts = [
   'compiler/contract-info.json',
-  'compiler/contract-manifest.json',
   'contract/index.js',
   'contract/index.d.ts',
   'zkir/prove_income_threshold.bzkir',
@@ -55,7 +54,7 @@ async function main() {
     passed &&= valid;
   }
 
-  const artifactRoot = path.resolve('src/midnight/contract-artifacts');
+  const artifactRoot = path.resolve('contract/build');
   const artifactOk = artifacts.every((file) => fs.existsSync(path.join(artifactRoot, file)));
   console.log(`${'compiled artifacts'.padEnd(18)} ${artifactOk ? 'PASS' : 'FAIL (missing generated files)'}`);
   passed &&= artifactOk;

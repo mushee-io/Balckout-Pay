@@ -173,8 +173,8 @@ export default function App() {
     handleNavigateTab('verify');
   };
 
-  const handleCreateRequest = (reqData: Omit<VerificationRequest, 'id' | 'createdAt' | 'status'>) => {
-    compactLedger.registerRequest(reqData, wallet.mode);
+  const handleCreateRequest = async (reqData: Omit<VerificationRequest, 'id' | 'createdAt' | 'status'>) => {
+    await compactLedger.registerRequest(reqData, wallet.mode);
     setRequests(compactLedger.getRequests(wallet.mode));
   };
 

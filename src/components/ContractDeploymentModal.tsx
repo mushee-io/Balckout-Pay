@@ -21,6 +21,7 @@ import {
 } from '../midnight/wallet-connector';
 import { WalletState } from '../midnight/types';
 import { DEPLOYED_CONTRACT_ADDRESS } from '../midnight/zk-engine';
+import { deployBlackoutContract } from '../midnight/live-midnight';
 
 interface ContractDeploymentModalProps {
   isOpen: boolean;
@@ -125,14 +126,11 @@ export const ContractDeploymentModal: React.FC<ContractDeploymentModalProps> = (
     setErrorMsg(null);
 
     try {
-      // A DApp connector signs finalized Midnight transactions. It does not
-      // accept a hand-written deployment object. The generated artifacts in
-      // this checkout lack the CompiledContract bundle needed to construct
-      // that transaction with MidnightJS, so fail closed instead of creating
-      // a false deployment record in localStorage or the dev-server API.
-      throw new Error(
-        'Deployment is blocked: the generated CompiledContract bundle is missing. No deployment transaction was created. Recompile with the matching Midnight toolchain, then deploy using the official MidnightJS transaction lifecycle.'
-      );
+      const deployed = await deployBlackoutContract();
+      setContractAddress(deployed.contractAddress);
+      setTxHash(deployed.txId);
+      onDeploymentComplete?.(deployed.contractAddress, deployed.txId);
+      setStep('SUCCESS');
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Deployment failed or was rejected by user.');
       setStep('ERROR');

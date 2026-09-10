@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "file": "index.js",
+  "sourceRoot": "../../../",
+  "sources": ["contract/income_verifier.compact", "compiler/standard-library.compact"],
+  "names": [],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;EAUA;;;;;;;;;;;;;;;;MAsBA,AAAA,sBA+BC;;;;;cA9BG,YAAqB;cACrB,iBAAyB;cACzB,aAAsB;cACtB,WAAmB;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;yCAHnB,YAAqB,+BACrB,iBAAyB,+BACzB,aAAsB,+BACtB,WAAmB;;;;;;;;;wDAHnB,YAAqB;wDACrB,iBAAyB;wDACzB,aAAsB;wDACtB,WAAmB;;;OA2BtB;MAGD,AAAA,6BAeC;;;;;cAdG,YAAqB;cACrB,iBAAyB;cACzB,aAAsB;cACtB,WAAmB;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;yCAHnB,YAAqB,+BACrB,iBAAyB,+BACzB,aAAsB,+BACtB,WAAmB;;;;;;;;;+DAHnB,YAAqB;+DACrB,iBAAyB;+DACzB,aAAsB;+DACtB,WAAmB;;;OAWtB;;;;;;;;;;GAEA;EAzED;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;IAeA;;;;;;;;;;yEAA0D;;;;;;;GA0DzD;ECnFD,AAAA,kBAAA;oEAAA;;;ED4BA,AAAA,6BAA+C;;0DAA/C,0BAA+C;;;;;;;;;;;;;;GAAA;EAC/C,AAAA,0BAA6C;;0DAA7C,uBAA6C;;;;;;;;;;;;;;GAAA;EAG7C,AAAA,yBA+BC;;4BA9BG,YAAqB;4BACrB,iBAAyB;4BACzB,aAAsB;4BACtB,WAAmB;;UAGb,gBAAuD;;UACvD,cAAmD;;UAGnD,qBAAsG,2BAA9B,gBAAc;0DAAE,cAAY;UAIpG,cAAmE,GAAlC,gBAAc,IAAI,iBAAe;UAClE,sBAA+D,GAApB,qBAAmB;UAGpE,KAAO,iBACkB,YAAU;qCACL,iBAAe;iCAC5B,cAAY;+BACL,WAAS;iCACP,aAAW;gCACrB,sBAAoB;IANpC;;;;;;;;;;2HAAwB,YAAU;;;2HAAlC,KAAO;;;wEAAA;WAWA,cAAY;GACtB;EAGD,AAAA,gCAeC;;mCAdG,YAAqB;mCACrB,iBAAyB;mCACzB,aAAsB;mCACtB,WAAmB;;UAEnB,KAAO,iBACkB,YAAU;qCACL,iBAAe;;+BAErB,WAAS;iCACP,aAAW;;IALrC;;;;;;;;;;2HAAwB,YAAU;;;2HAAlC,KAAO;;;wEAAA;;GASV;;;;;;;;;;;;;;;;IAxDD;;;;;uCAAA;;;;;;;;;;;;;;;;4GAA0D;;;;;;uCAA1D;;;;;;;;;;;;4GAA0D;;;;;;;;;;;;;;uCAA1D;;;;;;;;;;;;;;;4GAA0D;;;;;;;;;;;;;;uCAA1D;;;;;;;;;;;;;;;;;4GAA0D;;;;;;;;;KAAA;;;;;;;;;;;;;"
+}

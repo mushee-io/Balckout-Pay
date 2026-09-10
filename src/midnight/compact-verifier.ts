@@ -11,7 +11,8 @@
 import { ExecutionMode, VerificationRequest, ZkProofResult } from './types';
 import { getMidnightConfig, fetchOnChainContractRecords, OnChainVerificationItem } from './providers';
 import { getActiveLaceApi } from './wallet-connector';
-import { generateSecureNonce } from './zk-engine';
+import { generateSecureNonce, hexToBytes32 } from './zk-engine';
+import { getActiveBlackoutContractAddress, registerVerificationRequest } from './live-midnight';
 
 export const INITIAL_DEMO_REQUESTS: VerificationRequest[] = [
   {
@@ -206,7 +207,8 @@ export class CompactContractLedger {
   public getRequests(mode: ExecutionMode = 'DEMO'): VerificationRequest[] {
     if (mode === 'LIVE') {
       const config = getMidnightConfig();
-      if (!config.contractAddress) {
+      const contractAddress = getActiveBlackoutContractAddress() || config.contractAddress;
+      if (!contractAddress) {
         return [];
       }
       return this.liveRequestsCache;
@@ -249,26 +251,31 @@ export class CompactContractLedger {
 
     if (mode === 'LIVE') {
       const config = getMidnightConfig();
-      if (!config.contractAddress) {
+      const contractAddress = getActiveBlackoutContractAddress() || config.contractAddress;
+      if (!contractAddress) {
         throw new Error(
           'Live on-chain registration requires a deployed contract address on Midnight Preview. Contract is currently undeployed.'
         );
       }
 
-      const laceApi = getActiveLaceApi();
-      if (!laceApi) {
-        throw new Error(
-          'Live on-chain request registration requires an active connected Lace wallet to sign and broadcast the transaction.'
-        );
+      if (!/^0x[0-9a-fA-F]{64}$/.test(req.verifierAddress)) {
+        throw new Error('LIVE registration requires the verifier’s 32-byte public key as a 0x-prefixed 64-character hex value.');
       }
-
-      // The dApp connector accepts finalized Midnight transactions, not an
-      // application object. Until the missing CompiledContract bundle is
-      // restored, refuse to create a misleading local LIVE request.
-      void laceApi;
-      throw new Error(
-        'Live request registration is blocked: the generated CompiledContract bundle required to create register_verification_request is missing. No transaction was submitted.'
-      );
+      const submitted = await registerVerificationRequest({
+        contractAddress,
+        requestId: hexToBytes32(nonce),
+        requiredIncome: BigInt(Math.floor(req.requiredIncome)),
+        verifierPublicKey: hexToBytes32(req.verifierAddress),
+        timestamp: BigInt(Math.floor(Date.now() / 1000)),
+      });
+      const liveRequest: VerificationRequest = {
+        ...req, id: req.id || nonce, policyId, rules, nonce,
+        policyHash: req.policyHash || `0x${nonce}`,
+        createdAt: Date.now(), expiresAt, status: 'PENDING', isLiveOnChain: true,
+        notes: `${req.notes ? `${req.notes} ` : ''}Preview transaction: ${submitted.txId}`,
+      };
+      this.liveRequestsCache = [liveRequest, ...this.liveRequestsCache];
+      return liveRequest;
     }
 
     // DEMO mode

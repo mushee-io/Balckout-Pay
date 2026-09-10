@@ -6,7 +6,7 @@ import { generateSecureNonce } from '../midnight/zk-engine';
 interface CreateRequestModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreateRequest: (req: Omit<VerificationRequest, 'id' | 'createdAt' | 'status'>) => void;
+  onCreateRequest: (req: Omit<VerificationRequest, 'id' | 'createdAt' | 'status'>) => Promise<void>;
 }
 
 export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({
@@ -79,7 +79,7 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({
     } : r));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
 
@@ -106,21 +106,25 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({
     }
 
     const expiresAt = Date.now() + validityDays * 24 * 60 * 60 * 1000;
-    const nonce = `blk_nonce_${Date.now().toString(36)}_${generateSecureNonce().slice(0, 12)}`;
+    const nonce = generateSecureNonce();
 
-    onCreateRequest({
-      title: cleanTitle,
-      purpose,
-      requiredIncome,
-      currency,
-      verifierName: verifierName.trim() || 'Independent Verifier',
-      verifierAddress: verifierAddress.trim() || 'mn_addr_test1q_unassigned_verifier',
-      notes,
-      rules,
-      expiresAt,
-      nonce
-    });
-    onClose();
+    try {
+      await onCreateRequest({
+        title: cleanTitle,
+        purpose,
+        requiredIncome,
+        currency,
+        verifierName: verifierName.trim() || 'Independent Verifier',
+        verifierAddress: verifierAddress.trim() || 'mn_addr_test1q_unassigned_verifier',
+        notes,
+        rules,
+        expiresAt,
+        nonce
+      });
+      onClose();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Unable to register the verification request.');
+    }
   };
 
   const applyPreset = (

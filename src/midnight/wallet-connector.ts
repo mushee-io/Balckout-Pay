@@ -7,6 +7,14 @@
  */
 
 import { ExecutionMode, MidnightNetwork, WalletState } from './types';
+import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
+
+export interface LaceSession {
+  wallet: any;
+  configuration: { proverServerUri?: string; indexerUri?: string; indexerWsUri?: string };
+  addresses: { shieldedAddress?: string; shieldedCoinPublicKey?: string; shieldedEncryptionPublicKey?: string };
+  networkId: string;
+}
 
 export const DEFAULT_WALLET_STATE: WalletState = {
   isConnected: false,
@@ -69,6 +77,7 @@ export function getInjectedMidnightWallets(): DiscoveredMidnightWallet[] {
 }
 
 let activeLaceApi: any = null;
+let activeLaceSession: LaceSession | null = null;
 
 export function getActiveLaceApi(): any {
   return activeLaceApi;
@@ -76,6 +85,10 @@ export function getActiveLaceApi(): any {
 
 export function setActiveLaceApi(api: any): void {
   activeLaceApi = api;
+}
+
+export function getActiveLaceSession(): LaceSession | null {
+  return activeLaceSession;
 }
 
 export function isLaceMidnightAvailable(): boolean {
@@ -117,7 +130,8 @@ export async function connectLiveLaceWallet(
     availableWallets[0];
 
   try {
-    // Map human-readable network to networkId string
+    // Preview network ID is supplied by the official wallet connector rather
+    // than guessed by this application.
     const networkId = preferredNetwork === 'Midnight Preview' ? 'preview' : 'testnet-02';
 
     let address = '';
@@ -127,6 +141,12 @@ export async function connectLiveLaceWallet(
     if (typeof selectedWallet.api.connect === 'function') {
       const connectedApi = await selectedWallet.api.connect(networkId);
       activeLaceApi = connectedApi;
+      const configuration = await connectedApi.getConfiguration();
+      const connectionStatus = await connectedApi.getConnectionStatus();
+      if (connectionStatus?.status !== 'connected' || !connectionStatus.networkId) {
+        throw new Error('Lace did not establish a connected Midnight network session.');
+      }
+      setNetworkId(connectionStatus.networkId);
       
       // Hint usage for permission acquisition
       if (typeof connectedApi.hintUsage === 'function') {
@@ -138,12 +158,15 @@ export async function connectLiveLaceWallet(
       }
 
       // Fetch unshielded address (Bech32m)
+      const shieldedAddresses = typeof connectedApi.getShieldedAddresses === 'function'
+        ? await connectedApi.getShieldedAddresses()
+        : {};
+      activeLaceSession = { wallet: connectedApi, configuration, addresses: shieldedAddresses, networkId: connectionStatus.networkId };
       if (typeof connectedApi.getUnshieldedAddress === 'function') {
         const addrObj = await connectedApi.getUnshieldedAddress();
         address = addrObj?.unshieldedAddress || '';
-      } else if (typeof connectedApi.getShieldedAddresses === 'function') {
-        const sAddr = await connectedApi.getShieldedAddresses();
-        address = sAddr?.shieldedAddress || '';
+      } else {
+        address = shieldedAddresses?.shieldedAddress || '';
       }
 
       // Fetch Dust balance

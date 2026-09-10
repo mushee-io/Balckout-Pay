@@ -21,9 +21,10 @@ import {
   RuleEvaluationResult,
   VerificationRequest
 } from './types';
-import { Contract, Witnesses } from './contract-artifacts/contract/index.js';
+import { Contract, Witnesses } from '../../contract/build/contract/index.js';
 import { assertLiveMidnightConfig, getMidnightConfig, checkIndexerHealth, checkProofServerHealth } from './providers';
 import { getActiveLaceApi } from './wallet-connector';
+import { getActiveBlackoutContractAddress, proveIncomeThreshold as submitIncomeProof } from './live-midnight';
 
 export const DEPLOYED_CONTRACT_ADDRESS = getMidnightConfig().contractAddress;
 
@@ -431,47 +432,39 @@ export async function proveIncomeThreshold(
   let realBlockHeight: number | undefined;
 
   if (mode === 'LIVE') {
-    const config = assertLiveMidnightConfig();
-
-    // Check proof server
     callbacks?.onStepChange?.('GENERATING_SNARK_PROOF', 'Connecting to Midnight Proof Server (Port 6300)...');
     callbacks?.onProgress?.(80);
-    const proofServerStatus = await checkProofServerHealth();
-    if (!proofServerStatus.ok) {
-      throw new Error(
-        `Midnight Proof Server unreachable at ${config.proofServerUrl}. Please ensure midnight-proof-server is running.`
-      );
-    }
-
-    // The indexer check is only a health check. It is not confirmation of a
-    // transaction and must never be presented as one.
-    const indexerStatus = await checkIndexerHealth();
-    if (!indexerStatus.ok) throw new Error('Midnight Indexer is unreachable; LIVE verification cannot confirm a transaction.');
-
-    // Submit via connected Lace wallet
     callbacks?.onStepChange?.('BROADCASTING_MIDNIGHT', 'Requesting transaction signature in Midnight Lace Wallet...');
     callbacks?.onProgress?.(90);
-
-    const laceApi = getActiveLaceApi();
-    if (!laceApi) {
-      throw new Error(
-        'No active Lace wallet session found. Please connect your Lace wallet in LIVE mode to sign and broadcast the transaction.'
-      );
+    const verifierPublicKey = requestObj?.verifierAddress ?? '';
+    if (!/^0x[0-9a-fA-F]{64}$/.test(verifierPublicKey)) {
+      throw new Error('LIVE proof requires the verifier’s 32-byte public key as a 0x-prefixed 64-character hex value. No address hash is substituted.');
     }
-
-    // The installed generated output is an executable Compact binding, but it
-    // does not include the CompiledContract bundle required by MidnightJS to
-    // construct and submit a call transaction. Passing an object with fields
-    // such as `circuit` or `requiredIncome` to Lace is not a Midnight
-    // transaction, so LIVE must fail closed until that compiler output is
-    // supplied. The private witness remains in this function and is never
-    // serialized or passed to the wallet.
-    void config;
-    void laceApi;
-    callbacks?.onStepChange?.('FAILED', 'Missing generated CompiledContract bundle; no transaction was created or submitted.');
-    throw new Error(
-      'LIVE verification is blocked: contract/build does not contain the generated CompiledContract bundle required by @midnight-ntwrk/midnight-js-contracts. No proof or transaction was fabricated. Recompile income_verifier.compact with the matching official toolchain and provide the complete build output before enabling LIVE mode.'
-    );
+    const contractAddress = getActiveBlackoutContractAddress() || getMidnightConfig().contractAddress;
+    if (!contractAddress) throw new Error('Deploy the Compact contract to Midnight Preview before submitting a proof.');
+    const submitted = await submitIncomeProof({
+      contractAddress,
+      requestId: hexToBytes32(nonce),
+      requiredIncome: BigInt(Math.floor(requiredIncome)),
+      verifierPublicKey: hexToBytes32(verifierPublicKey),
+      timestamp: BigInt(Math.floor(Date.now() / 1000)),
+      witness: { monthlyIncome: safeIncomeBigInt, salt: hexToBytes32(credential.salt) },
+    });
+    realTxHash = submitted.txId;
+    realBlockHeight = submitted.blockHeight;
+    callbacks?.onStepChange?.('COMPLETED', `Midnight Preview transaction ${submitted.txId} was accepted for indexing.`);
+    callbacks?.onProgress?.(100);
+    return {
+      requestId, policyId, policyHash, nonce,
+      isVerified: isSatisfied, requirementsSatisfied, requirementsTotal, ruleResults,
+      threshold: requiredIncome, currency: credential.currency,
+      commitmentHash: credential.commitment, timestamp: Date.now(), expiresAt,
+      executionTimeMs: Math.round(performance.now() - startTime), circuitName: 'prove_income_threshold',
+      contractAddress, midnightNetwork: network, blockHeight: realBlockHeight, mode, txHash: realTxHash,
+      publicOutputs: { is_satisfied: isSatisfied, required_income: requiredIncome, threshold_currency: credential.currency, policy_id: policyId, requirements_satisfied: requirementsSatisfied, requirements_total: requirementsTotal },
+      privateIncomeDisclosed: '0 BYTES', privateWitnessDisclosed: '0 BYTES',
+      unrevealedFields: ['Exact monthly income', 'Income salt', 'Identity and account information'],
+    };
   } else {
     // DEMO mode: pure client-side local evaluation
     callbacks?.onStepChange?.('GENERATING_SNARK_PROOF', 'Evaluating zero-knowledge proof constraints in witness sandbox...');
