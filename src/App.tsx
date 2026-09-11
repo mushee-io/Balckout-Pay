@@ -35,6 +35,7 @@ import {
   persistPublicLiveEvidence,
 } from './midnight/evidence-store';
 import { PayrollDashboard } from './payroll/components/PayrollDashboard';
+import { PayrollHomeSection } from './payroll/components/PayrollHomeSection';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>(() => {
@@ -48,12 +49,10 @@ export default function App() {
     return 'home';
   });
 
-  // Start disconnected. We never pretend a demo wallet is connected after refresh.
   const [wallet, setWallet] = useState<WalletState>({ ...DEFAULT_WALLET_STATE });
   const [walletError, setWalletError] = useState<string | null>(null);
   const [privacyMode, setPrivacyMode] = useState(false);
 
-  // Private witness data stays in RAM only. LIVE and DEMO never share a witness.
   const [credential, setCredential] = useState<PrivateIncomeCredential | null>(null);
   const [requests, setRequests] = useState<VerificationRequest[]>([]);
   const [selectedRequestForVerifier, setSelectedRequestForVerifier] = useState<VerificationRequest | null>(null);
@@ -93,7 +92,6 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Demo witness exists only when the user explicitly enters DEMO mode.
   useEffect(() => {
     if (!wallet.isConnected || wallet.mode !== 'DEMO' || credential) return;
 
@@ -129,7 +127,6 @@ export default function App() {
     setWallet((prev) => ({ ...prev, isConnecting: true }));
     setWalletError(null);
     try {
-      // Clear the previous mode's private witness before crossing execution boundaries.
       setCredential(null);
       setSelectedRequestForProof(null);
       setSelectedRequestForVerifier(null);
@@ -212,13 +209,17 @@ export default function App() {
 
       <main className="flex-1">
         {activeTab === 'home' && (
-          <Homepage
-            requests={requests}
-            credential={credential}
-            onEnterBlackout={(tab) => handleNavigateTab(tab || 'prove')}
-            onOpenDemo={() => setIsDemoOpen(true)}
-            onOpenDevDrawer={() => setIsDevDrawerOpen(true)}
-          />
+          <>
+            <Homepage
+              requests={requests}
+              onNavigate={handleNavigateTab}
+              onOpenDemo={() => setIsDemoOpen(true)}
+              onOpenDevDrawer={() => setIsDevDrawerOpen(true)}
+              onOpenAuditor={() => setIsAuditorOpen(true)}
+              onOpenTests={() => setIsTestsOpen(true)}
+            />
+            <PayrollHomeSection onOpenPayroll={() => handleNavigateTab('payroll')} />
+          </>
         )}
 
         {activeTab === 'prove' && (
