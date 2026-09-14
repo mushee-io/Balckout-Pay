@@ -10,7 +10,8 @@ import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-p
 import { StateValue } from '@midnight-ntwrk/compact-runtime';
 import { ledger } from '../../contract/build/contract/index.js';
 
-const CONTRACT_ADDRESS_STORAGE_KEY = 'blackout_midnight_preview_contract_address_v1';
+// v2 deliberately ignores any address from the pre-hardening contract.
+const CONTRACT_ADDRESS_STORAGE_KEY = 'blackout_midnight_preview_contract_address_v2';
 
 export interface MidnightConfig {
   networkId: string;
@@ -21,14 +22,40 @@ export interface MidnightConfig {
   contractAddress: string;
 }
 
+function normalizeContractAddress(value: string): string {
+  const clean = value?.trim().replace(/^0x/i, '') ?? '';
+  if (!clean) return '';
+  return /^[0-9a-fA-F]{64}$/.test(clean) ? clean.toLowerCase() : '';
+}
+
 function readPersistedContractAddress(): string {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return '';
-    const value = window.localStorage.getItem(CONTRACT_ADDRESS_STORAGE_KEY)?.trim() || '';
-    return /^[0-9a-fA-F]{64}$/.test(value) ? value : '';
+    return normalizeContractAddress(window.localStorage.getItem(CONTRACT_ADDRESS_STORAGE_KEY) || '');
   } catch {
     return '';
   }
+}
+
+function bytes32ToHex(value: Uint8Array): string {
+  if (!(value instanceof Uint8Array) || value.length !== 32) {
+    throw new Error('Decoded Compact Bytes<32> value has an invalid length.');
+  }
+  return Array.from(value, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function bigintToSafeNumber(value: bigint, label: string): number {
+  if (value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`${label} exceeds JavaScript safe integer bounds.`);
+  }
+  return Number(value);
+}
+
+function unixSecondsToMs(value: bigint, label: string): number {
+  const seconds = bigintToSafeNumber(value, label);
+  const millis = seconds * 1000;
+  if (!Number.isSafeInteger(millis)) throw new Error(`${label} exceeds safe timestamp bounds.`);
+  return millis;
 }
 
 export function getMidnightConfig(): MidnightConfig {
@@ -60,14 +87,12 @@ export function getMidnightConfig(): MidnightConfig {
     (isProc && process.env.MIDNIGHT_PROOF_SERVER_URL) ||
     '';
 
-  // A deployment address is public state. Prefer the address persisted by the
-  // successful browser deployment so refreshes do not regress to CONTRACT: UNSET.
   const persistedContractAddress = readPersistedContractAddress();
-  const configuredContractAddress =
+  const configuredContractAddress = normalizeContractAddress(
     (isMeta && import.meta.env.VITE_MIDNIGHT_CONTRACT_ADDRESS) ||
     (isProc && process.env.MIDNIGHT_CONTRACT_ADDRESS) ||
-    '';
-  const contractAddress = persistedContractAddress || configuredContractAddress;
+    ''
+  );
 
   return {
     networkId,
@@ -75,7 +100,7 @@ export function getMidnightConfig(): MidnightConfig {
     indexerUrl,
     indexerWsUrl,
     proofServerUrl,
-    contractAddress,
+    contractAddress: persistedContractAddress || configuredContractAddress,
   };
 }
 
@@ -88,7 +113,13 @@ export function assertLiveMidnightConfig(config: MidnightConfig = getMidnightCon
   ];
   const missing = required.filter(([, value]) => !value?.trim()).map(([key]) => key);
   if (missing.length) {
-    throw new Error(`LIVE mode requires wallet-verified Midnight configuration: ${missing.join(', ')}.`);
+    throw new Error(`LIVE mode requires Midnight configuration: ${missing.join(', ')}.`);
+  }
+  if (config.networkId !== 'preview') {
+    throw new Error(`Blackout Pay LIVE is locked to Midnight Preview; configured network is "${config.networkId}".`);
+  }
+  if (!normalizeContractAddress(config.contractAddress)) {
+    throw new Error('MIDNIGHT_CONTRACT_ADDRESS is not a valid 32-byte Midnight contract address.');
   }
   return config;
 }
@@ -125,11 +156,21 @@ export interface OnChainVerificationItem {
   commitment: string;
 }
 
+/**
+ * Read finalized verification results from the hardened v2 contract.
+ *
+ * `records` contains immutable registrations. `results` contains exactly one
+ * append-only result per proved request. Pending registrations are intentionally
+ * not returned as verified evidence; the UI may keep its own clearly-pending
+ * cache until a result is indexed.
+ */
 export async function fetchOnChainContractRecords(contractAddress: string): Promise<OnChainVerificationItem[]> {
-  if (!contractAddress || contractAddress.trim() === '') return [];
+  const cleanAddress = normalizeContractAddress(contractAddress);
+  if (!cleanAddress) return [];
 
   const config = getMidnightConfig();
   if (!config.indexerUrl) throw new Error('MIDNIGHT_INDEXER_URL is required for on-chain reads.');
+
   const query = `
     query GetContractState($address: HexEncoded!) {
       contract(address: $address) {
@@ -138,49 +179,65 @@ export async function fetchOnChainContractRecords(contractAddress: string): Prom
       }
     }
   `;
-  const cleanAddress = contractAddress.startsWith('0x') ? contractAddress.slice(2) : contractAddress;
 
   const res = await fetch(config.indexerUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables: { address: cleanAddress } }),
   });
-  if (!res.ok) throw new Error(`Failed to query Midnight Indexer: ${res.statusText}`);
+  if (!res.ok) throw new Error(`Failed to query Midnight Indexer: HTTP ${res.status}`);
 
   const json: any = await res.json();
-  if (json.errors && json.errors.length > 0) {
-    throw new Error(`Midnight GraphQL error: ${json.errors[0].message}`);
+  if (Array.isArray(json?.errors) && json.errors.length > 0) {
+    const message = typeof json.errors[0]?.message === 'string' ? json.errors[0].message.slice(0, 300) : 'Unknown GraphQL error';
+    throw new Error(`Midnight GraphQL error: ${message}`);
   }
 
-  const contractData = json.data?.contract;
-  if (!contractData || !contractData.state) return [];
+  const contractData = json?.data?.contract;
+  if (!contractData || typeof contractData.state !== 'string' || contractData.state.length === 0) return [];
 
-  try {
-    const stateHex = contractData.state.startsWith('0x') ? contractData.state.slice(2) : contractData.state;
-    const stateBytes = new Uint8Array(stateHex.match(/.{1,2}/g)?.map((byte: string) => parseInt(byte, 16)) || []);
-    const decodedState = StateValue.decode(stateBytes as any);
-    const contractLedger = ledger(decodedState);
+  const stateHex = contractData.state.startsWith('0x') ? contractData.state.slice(2) : contractData.state;
+  if (!/^[0-9a-fA-F]+$/.test(stateHex) || stateHex.length % 2 !== 0) {
+    throw new Error('Midnight Indexer returned malformed contract state bytes.');
+  }
 
-    const items: OnChainVerificationItem[] = [];
-    for (const [, record] of contractLedger.records) {
-      const reqIdStr = new TextDecoder().decode(record.request_id).replace(/\0/g, '').trim() ||
-        '0x' + Array.from(record.request_id).map(b => b.toString(16).padStart(2, '0')).join('');
-      const verifierHex = '0x' + Array.from(record.verifier_pk).map(b => b.toString(16).padStart(2, '0')).join('');
-      const commitmentHex = '0x' + Array.from(record.commitment).map(b => b.toString(16).padStart(2, '0')).join('');
+  const stateBytes = new Uint8Array(stateHex.match(/.{2}/g)!.map((byte: string) => Number.parseInt(byte, 16)));
+  const decodedState = StateValue.decode(stateBytes as any);
+  const contractLedger = ledger(decodedState);
 
-      items.push({
-        requestId: reqIdStr,
-        requiredIncome: Number(record.required_income),
-        isVerified: record.is_verified,
-        timestamp: Number(record.timestamp),
-        verifierPk: verifierHex,
-        commitment: commitmentHex,
-      });
+  const resultsByRequest = new Map<string, any>();
+  for (const [, result] of contractLedger.results) {
+    const requestId = bytes32ToHex(result.request_id);
+    resultsByRequest.set(requestId, result);
+  }
+
+  const items: OnChainVerificationItem[] = [];
+  for (const [, record] of contractLedger.records) {
+    const requestId = bytes32ToHex(record.request_id);
+    const result = resultsByRequest.get(requestId);
+    if (!result) continue;
+
+    if (bytes32ToHex(result.request_id) !== requestId) {
+      throw new Error('Midnight result/request identifier mismatch detected while decoding ledger state.');
     }
-    return items;
-  } catch {
-    return [];
+    if (BigInt(result.required_income) !== BigInt(record.required_income)) {
+      throw new Error('Midnight result threshold does not match immutable request registration.');
+    }
+    if (bytes32ToHex(result.verifier_pk) !== bytes32ToHex(record.verifier_pk)) {
+      throw new Error('Midnight result verifier does not match immutable request registration.');
+    }
+
+    items.push({
+      requestId,
+      requiredIncome: bigintToSafeNumber(BigInt(record.required_income), 'Required income'),
+      isVerified: Boolean(result.is_verified),
+      timestamp: unixSecondsToMs(BigInt(record.timestamp), 'Registration timestamp'),
+      verifierPk: `0x${bytes32ToHex(record.verifier_pk)}`,
+      commitment: `0x${bytes32ToHex(result.commitment)}`,
+    });
   }
+
+  return items;
 }
 
 export async function checkProofServerHealth(): Promise<{ ok: boolean; statusText: string }> {
@@ -190,34 +247,43 @@ export async function checkProofServerHealth(): Promise<{ ok: boolean; statusTex
     const res = await fetch(`${config.proofServerUrl}/`);
     return { ok: res.ok, statusText: res.ok ? 'ONLINE' : `HTTP ${res.status}` };
   } catch (err) {
-    return { ok: false, statusText: err instanceof Error ? err.message : 'UNREACHABLE' };
+    return { ok: false, statusText: err instanceof Error ? err.message.slice(0, 200) : 'UNREACHABLE' };
   }
 }
 
 export async function checkRpcHealth(): Promise<{ ok: boolean; peers?: number; isSyncing?: boolean }> {
   const config = getMidnightConfig();
+  if (!config.nodeRpcUrl) return { ok: false };
   try {
     const res = await fetch(config.nodeRpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'system_health', params: [] }),
     });
+    if (!res.ok) return { ok: false };
     const data: any = await res.json();
     if (data?.result) return { ok: true, peers: data.result.peers, isSyncing: data.result.isSyncing };
-  } catch {}
+  } catch {
+    // Health checks are informational only.
+  }
   return { ok: false };
 }
 
 export async function checkIndexerHealth(): Promise<{ ok: boolean; blockHeight?: number }> {
   const config = getMidnightConfig();
+  if (!config.indexerUrl) return { ok: false };
   try {
     const res = await fetch(config.indexerUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query: '{ block { height hash } }' }),
     });
+    if (!res.ok) return { ok: false };
     const data: any = await res.json();
-    if (data?.data?.block?.height) return { ok: true, blockHeight: data.data.block.height };
-  } catch {}
+    const height = Number(data?.data?.block?.height);
+    if (Number.isSafeInteger(height) && height >= 0) return { ok: true, blockHeight: height };
+  } catch {
+    // Health checks are informational only.
+  }
   return { ok: false };
 }

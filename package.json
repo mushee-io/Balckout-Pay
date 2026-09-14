@@ -4,16 +4,23 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "npm run midnight:assets && vite --port=3000 --host=0.0.0.0",
-    "build": "npm run midnight:assets && vite build",
+    "predev": "npm run midnight:compile && npm run midnight:assets",
+    "dev": "vite --port=3000 --host=0.0.0.0",
+    "prebuild": "npm run midnight:compile && npm run midnight:assets",
+    "build": "vite build",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
+    "clean": "rm -rf dist server.js contract/build public/keys public/zkir",
+    "midnight:compile": "node scripts/compile-compact.mjs",
     "midnight:deploy": "tsx scripts/deploy-midnight.ts",
     "midnight:finalize": "tsx scripts/finalize-midnight.ts",
     "midnight:check": "tsx scripts/midnight-check.ts",
     "midnight:assets": "node scripts/copy-zk-artifacts.mjs",
-    "test": "tsx src/tests/privacy.test.ts",
-    "lint": "tsc --noEmit"
+    "prelint": "npm run midnight:compile",
+    "lint": "tsc --noEmit",
+    "pretest": "npm run midnight:compile",
+    "test": "tsx src/tests/privacy.test.ts && tsx src/tests/hardening.test.ts",
+    "build:verified": "npm run build",
+    "ci": "npm run lint && npm test && npm run build:verified"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
