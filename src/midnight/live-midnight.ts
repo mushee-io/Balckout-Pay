@@ -15,13 +15,37 @@ import { makeBlackoutCompiledContract, type BlackoutPrivateState, type BlackoutW
 import { getActiveLaceSession, type LaceSession } from './wallet-connector';
 
 export const BLACKOUT_PRIVATE_STATE_ID = 'blackout-income-verifier-session';
-const CONTRACT_ADDRESS_STORAGE_KEY = 'blackout_midnight_preview_contract_address_v1';
+// v2 intentionally does not reuse the older contract address. The hardened
+// Compact contract changes protocol state semantics and must be redeployed.
+const CONTRACT_ADDRESS_STORAGE_KEY = 'blackout_midnight_preview_contract_address_v2';
+const MAX_UINT64 = (1n << 64n) - 1n;
+
+function normalizeContractAddress(value: string): string {
+  const clean = value?.trim().replace(/^0x/i, '') ?? '';
+  if (!/^[0-9a-fA-F]{64}$/.test(clean)) {
+    throw new Error('Midnight contract address must be exactly 32 bytes (64 hexadecimal characters).');
+  }
+  return clean.toLowerCase();
+}
+
+function assertUint64(value: bigint, label: string): void {
+  if (value < 0n || value > MAX_UINT64) {
+    throw new Error(`${label} must be an unsigned 64-bit integer.`);
+  }
+}
+
+function assertBytes32(value: Uint8Array, label: string): void {
+  if (!(value instanceof Uint8Array) || value.length !== 32) {
+    throw new Error(`${label} must be exactly 32 bytes.`);
+  }
+}
 
 function readPersistedContractAddress(): string {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return '';
     const stored = window.localStorage.getItem(CONTRACT_ADDRESS_STORAGE_KEY)?.trim() || '';
-    return /^[0-9a-fA-F]{64}$/.test(stored) ? stored : '';
+    if (!stored) return '';
+    return normalizeContractAddress(stored);
   } catch {
     return '';
   }
@@ -29,8 +53,9 @@ function readPersistedContractAddress(): string {
 
 function persistContractAddress(address: string): void {
   try {
-    if (typeof window !== 'undefined' && window.localStorage && /^[0-9a-fA-F]{64}$/.test(address)) {
-      window.localStorage.setItem(CONTRACT_ADDRESS_STORAGE_KEY, address);
+    const clean = normalizeContractAddress(address);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(CONTRACT_ADDRESS_STORAGE_KEY, clean);
     }
   } catch {
     // Contract address is public. Persistence failure must not block a valid deployment.
@@ -50,13 +75,13 @@ export interface PrivateIncomeWitness {
   salt: Uint8Array;
 }
 
-const toHex = (bytes: Uint8Array) => Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+const toHex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 const fromHex = (value: string) => {
   const hex = value.startsWith('0x') ? value.slice(2) : value;
-  if (!/^[0-9a-f]{2,}$/i.test(hex) || hex.length % 2 !== 0) {
+  if (!/^[0-9a-f]+$/i.test(hex) || hex.length < 2 || hex.length % 2 !== 0) {
     throw new Error('Wallet returned an invalid serialized Midnight transaction.');
   }
-  return new Uint8Array(hex.match(/.{2}/g)!.map(byte => Number.parseInt(byte, 16)));
+  return new Uint8Array(hex.match(/.{2}/g)!.map((byte) => Number.parseInt(byte, 16)));
 };
 
 /**
@@ -64,20 +89,20 @@ const fromHex = (value: string) => {
  * objects because they may contain transaction or private-state material.
  */
 function safeMidnightError(error: unknown, fallback: string): string {
-  if (typeof error === 'string' && error.trim()) return error;
+  if (typeof error === 'string' && error.trim()) return error.slice(0, 500);
   if (error instanceof Error) {
-    if (error.message?.trim()) return error.message;
+    if (error.message?.trim()) return error.message.slice(0, 500);
     const cause = error.cause;
     if (cause && cause !== error) return safeMidnightError(cause, fallback);
-    if (error.name && error.name !== 'Error') return error.name;
+    if (error.name && error.name !== 'Error') return error.name.slice(0, 100);
   }
   if (typeof error === 'object' && error !== null) {
     const value = error as Record<string, unknown>;
     const fields = ['reason', 'message', 'code', 'type', '_tag', 'name'] as const;
     const parts = fields
-      .map((field) => typeof value[field] === 'string' && value[field] ? `${field}: ${value[field]}` : '')
+      .map((field) => typeof value[field] === 'string' && value[field] ? `${field}: ${String(value[field]).slice(0, 160)}` : '')
       .filter(Boolean);
-    if (parts.length > 0) return parts.join(' | ');
+    if (parts.length > 0) return parts.join(' | ').slice(0, 500);
     if (value.cause && value.cause !== error) return safeMidnightError(value.cause, fallback);
   }
   return fallback;
@@ -85,7 +110,7 @@ function safeMidnightError(error: unknown, fallback: string): string {
 
 function readDustBalance(value: unknown): bigint {
   if (typeof value === 'bigint') return value;
-  if (typeof value === 'number' && Number.isFinite(value)) return BigInt(Math.trunc(value));
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
   if (typeof value === 'string' && /^\d+$/.test(value)) return BigInt(value);
   if (typeof value === 'object' && value !== null && 'balance' in value) {
     return readDustBalance((value as { balance: unknown }).balance);
@@ -95,7 +120,7 @@ function readDustBalance(value: unknown): bigint {
 
 async function requirePreviewDust(session: LaceSession): Promise<void> {
   if (session.networkId !== 'preview') {
-    throw new Error(`Blackout Pay LIVE is locked to Midnight Preview testnet; the connected wallet is on "${session.networkId}".`);
+    throw new Error(`Blackout Pay LIVE is locked to Midnight Preview; the connected wallet is on "${session.networkId}".`);
   }
   if (typeof session.wallet.getDustBalance !== 'function') {
     throw new Error('Connected Midnight wallet does not expose getDustBalance(). Update the wallet and reconnect on Midnight Preview.');
@@ -128,8 +153,6 @@ function sessionPrivateStateProvider(): PrivateStateProvider<string, BlackoutPri
       const existing = states.get(scopedKey);
       if (existing !== undefined) return existing;
 
-      // BlackoutPrivateState is Record<string, never>, so it is safe and
-      // correct to reconstruct the empty state after refresh/reconnect.
       if (id === BLACKOUT_PRIVATE_STATE_ID) {
         const initialState: BlackoutPrivateState = {};
         states.set(scopedKey, initialState);
@@ -173,14 +196,13 @@ function sessionPrivateStateProvider(): PrivateStateProvider<string, BlackoutPri
   } as PrivateStateProvider<string, BlackoutPrivateState>;
 }
 
-// One provider instance is shared across deploy/register/prove calls. MidnightJS
-// scopes it to the current contract with setContractAddress(). Recreating this
-// provider for every operation caused valid call transactions to fail with
-// "No private state found at private state ID ...".
 const blackoutPrivateStateProvider = sessionPrivateStateProvider();
 
 async function providersFor(session: LaceSession) {
   const { wallet, configuration, addresses } = session;
+  if (session.networkId !== 'preview') {
+    throw new Error('LIVE provider construction is restricted to Midnight Preview.');
+  }
   if (!configuration.indexerUri || !configuration.indexerWsUri) {
     throw new Error('Connected Midnight wallet did not provide the required Preview indexer endpoints.');
   }
@@ -202,9 +224,12 @@ async function providersFor(session: LaceSession) {
     async balanceTx(tx) {
       try {
         const result = await wallet.balanceUnsealedTransaction(toHex(tx.serialize()), { payFees: true });
+        if (!result || typeof result.tx !== 'string') {
+          throw new Error('Wallet did not return a balanced serialized transaction.');
+        }
         return ledger.Transaction.deserialize('signature', 'proof', 'binding', fromHex(result.tx)) as ledger.FinalizedTransaction;
       } catch (error: unknown) {
-        throw new Error(safeMidnightError(error, 'Connected wallet failed to balance the Midnight Preview testnet transaction.'));
+        throw new Error(safeMidnightError(error, 'Connected wallet failed to balance the Midnight Preview transaction.'));
       }
     },
   };
@@ -213,9 +238,11 @@ async function providersFor(session: LaceSession) {
     async submitTx(tx) {
       try {
         await wallet.submitTransaction(toHex(tx.serialize()));
-        return tx.identifiers()[0];
+        const identifiers = tx.identifiers();
+        if (!identifiers?.[0]) throw new Error('Finalized transaction did not expose a transaction identifier.');
+        return identifiers[0];
       } catch (error: unknown) {
-        throw new Error(safeMidnightError(error, 'Connected wallet failed to submit the Midnight Preview testnet transaction.'));
+        throw new Error(safeMidnightError(error, 'Connected wallet failed to submit the Midnight Preview transaction.'));
       }
     },
   };
@@ -241,10 +268,11 @@ function inactiveWitnesses(): BlackoutWitnesses {
 }
 
 function witnessCallbacks(witness: PrivateIncomeWitness): BlackoutWitnesses {
-  if (witness.salt.length !== 32) throw new Error('Income salt must be exactly 32 bytes.');
+  assertUint64(witness.monthlyIncome, 'Private monthly income');
+  assertBytes32(witness.salt, 'Income salt');
   return {
-    get_private_monthly_income: context => [context.privateState, witness.monthlyIncome],
-    get_private_income_salt: context => [context.privateState, witness.salt],
+    get_private_monthly_income: (context) => [context.privateState, witness.monthlyIncome],
+    get_private_income_salt: (context) => [context.privateState, witness.salt],
   };
 }
 
@@ -260,12 +288,12 @@ export async function deployBlackoutContract() {
       privateStateId: BLACKOUT_PRIVATE_STATE_ID,
       initialPrivateState: {},
     });
-    activeContractAddress = String(deployed.deployTxData.public.contractAddress);
-    persistContractAddress(activeContractAddress);
-    return {
-      contractAddress: activeContractAddress,
-      txId: String(deployed.deployTxData.public.txId),
-    };
+    const contractAddress = normalizeContractAddress(String(deployed.deployTxData.public.contractAddress));
+    const txId = String(deployed.deployTxData.public.txId || '').trim();
+    if (!txId) throw new Error('Midnight deployment did not return a transaction id.');
+    activeContractAddress = contractAddress;
+    persistContractAddress(contractAddress);
+    return { contractAddress, txId };
   } catch (error: unknown) {
     throw new Error(safeMidnightError(error, 'Midnight Preview contract deployment failed.'));
   }
@@ -279,9 +307,14 @@ export async function proveIncomeThreshold(input: {
   timestamp: bigint;
   witness: PrivateIncomeWitness;
 }) {
-  if (input.requestId.length !== 32 || input.verifierPublicKey.length !== 32) {
-    throw new Error('The generated Compact circuit requires 32-byte request and verifier public keys.');
-  }
+  const contractAddress = normalizeContractAddress(input.contractAddress);
+  assertBytes32(input.requestId, 'Request id');
+  assertBytes32(input.verifierPublicKey, 'Verifier public key');
+  assertUint64(input.requiredIncome, 'Required income');
+  assertUint64(input.timestamp, 'Proof timestamp');
+  assertUint64(input.witness.monthlyIncome, 'Private monthly income');
+  assertBytes32(input.witness.salt, 'Income salt');
+
   const session = getActiveLaceSession();
   if (!session) throw new Error('Connect a Midnight wallet on Preview before proving.');
   try {
@@ -290,15 +323,17 @@ export async function proveIncomeThreshold(input: {
     const compiledContract = makeBlackoutCompiledContract(witnessCallbacks(input.witness), window.location.origin);
     const result = await submitCallTx(providers as any, {
       compiledContract,
-      contractAddress: input.contractAddress,
+      contractAddress,
       circuitId: 'prove_income_threshold',
       args: [input.requestId, input.requiredIncome, input.verifierPublicKey, input.timestamp],
       privateStateId: BLACKOUT_PRIVATE_STATE_ID,
     });
-    return {
-      txId: String(result.public.txId),
-      blockHeight: Number(result.public.blockHeight),
-    };
+    const txId = String(result.public.txId || '').trim();
+    const blockHeight = Number(result.public.blockHeight);
+    if (!txId || !Number.isSafeInteger(blockHeight) || blockHeight < 0) {
+      throw new Error('Midnight returned an incomplete proof transaction receipt.');
+    }
+    return { txId, blockHeight };
   } catch (error: unknown) {
     throw new Error(safeMidnightError(error, 'Midnight Preview income proof transaction failed.'));
   }
@@ -311,9 +346,12 @@ export async function registerVerificationRequest(input: {
   verifierPublicKey: Uint8Array;
   timestamp: bigint;
 }) {
-  if (input.requestId.length !== 32 || input.verifierPublicKey.length !== 32) {
-    throw new Error('The generated Compact circuit requires 32-byte request and verifier public keys.');
-  }
+  const contractAddress = normalizeContractAddress(input.contractAddress);
+  assertBytes32(input.requestId, 'Request id');
+  assertBytes32(input.verifierPublicKey, 'Verifier public key');
+  assertUint64(input.requiredIncome, 'Required income');
+  assertUint64(input.timestamp, 'Registration timestamp');
+
   const session = getActiveLaceSession();
   if (!session) throw new Error('Connect a Midnight wallet on Preview before registering a request.');
   try {
@@ -322,15 +360,17 @@ export async function registerVerificationRequest(input: {
     const compiledContract = makeBlackoutCompiledContract(inactiveWitnesses(), window.location.origin);
     const result = await submitCallTx(providers as any, {
       compiledContract,
-      contractAddress: input.contractAddress,
+      contractAddress,
       circuitId: 'register_verification_request',
       args: [input.requestId, input.requiredIncome, input.verifierPublicKey, input.timestamp],
       privateStateId: BLACKOUT_PRIVATE_STATE_ID,
     });
-    return {
-      txId: String(result.public.txId),
-      blockHeight: Number(result.public.blockHeight),
-    };
+    const txId = String(result.public.txId || '').trim();
+    const blockHeight = Number(result.public.blockHeight);
+    if (!txId || !Number.isSafeInteger(blockHeight) || blockHeight < 0) {
+      throw new Error('Midnight returned an incomplete request-registration receipt.');
+    }
+    return { txId, blockHeight };
   } catch (error: unknown) {
     throw new Error(safeMidnightError(error, 'Midnight Preview request-registration transaction failed.'));
   }
