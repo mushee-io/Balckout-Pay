@@ -192,7 +192,13 @@ export const SafeSection: React.FC<SafeSectionProps> = ({ wallet, onConnectLive 
   });
 
   const createAndDeploy = () => run('safe deployment', async () => {
-    if (!safeWallet) throw new Error('BLACKOUT_SAFE_CONNECT_WALLET_FIRST');
+    // CREATE is a complete user action: if SAFE does not yet have a Preview
+    // session, establish/reuse the wallet session here instead of leaving the
+    // primary action disabled behind a second connection step.
+    if (!(wallet.isConnected && wallet.mode === 'LIVE')) await Promise.resolve(onConnectLive());
+    const connected = await connectSafeWallet();
+    setSafeWallet(connected);
+
     const prepared = bootstrapSafe({
       memberCount: Number(memberCount),
       mode: policyMode,
@@ -330,7 +336,7 @@ export const SafeSection: React.FC<SafeSectionProps> = ({ wallet, onConnectLive 
             <div><Label>EXECUTION DELAY</Label><Input value={executionDelay} onChange={(e) => setExecutionDelay(e.target.value)} /></div>
             <div><Label>POLICY MODE</Label><select value={policyMode} onChange={(e) => setPolicyMode(e.target.value as 'STANDARD' | 'PRIVATE_POLICY')} className="w-full bg-[#070707] border border-white/[0.12] px-3 py-3 font-mono text-xs"><option value="STANDARD">STANDARD</option><option value="PRIVATE_POLICY">PRIVATE</option></select></div>
           </div>
-          <div className="mt-5 flex flex-wrap gap-3"><ActionButton onClick={createAndDeploy} disabled={!safeWallet || Boolean(busy)}>CREATE + DEPLOY ON PREVIEW</ActionButton>{safe && <span className="self-center text-[10px] font-mono text-[#26A17B]">TX {short(safe.deploymentTxId)}</span>}</div>
+          <div className="mt-5 flex flex-wrap gap-3"><ActionButton onClick={createAndDeploy} disabled={Boolean(busy)}>{safeWallet ? 'CREATE + DEPLOY ON PREVIEW' : 'CONNECT + CREATE SAFE ON PREVIEW'}</ActionButton>{safe && <span className="self-center text-[10px] font-mono text-[#26A17B]">TX {short(safe.deploymentTxId)}</span>}</div>
         </Surface>
       </div>
     );
