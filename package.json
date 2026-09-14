@@ -22,7 +22,7 @@
     "pretest": "npm run midnight:compile",
     "test": "tsx src/tests/privacy.test.ts && tsx src/tests/hardening.test.ts",
     "build:verified": "npm run build",
-    "ci": "npm run lint && npm test && npm run build:verified"
+    "ci": "npm run midnight:compile && npm run midnight:assets && tsc --noEmit && tsx src/tests/privacy.test.ts && tsx src/tests/hardening.test.ts && vite build"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
