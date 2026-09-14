@@ -35,6 +35,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'request', label: 'REQUEST' },
     { id: 'verify', label: 'LEDGER' },
     { id: 'payroll', label: 'BLACKOUT PAYROLL', isSpecial: true },
+    { id: 'safe', label: 'SAFE', isSpecial: true },
     { id: 'developers', label: 'DEVELOPERS' },
   ];
 
