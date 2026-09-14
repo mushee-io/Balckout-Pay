@@ -1,5 +1,5 @@
 {
-  "name": "blackout-pay",
+  "name": "react-example",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -15,9 +15,10 @@
     "midnight:finalize": "tsx scripts/finalize-midnight.ts",
     "midnight:check": "tsx scripts/midnight-check.ts",
     "midnight:assets": "node scripts/copy-zk-artifacts.mjs",
+    "prelint": "npm run midnight:compile",
+    "lint": "tsc --noEmit",
     "pretest": "npm run midnight:compile",
     "test": "tsx src/tests/privacy.test.ts",
-    "lint": "tsc --noEmit",
     "ci": "npm run lint && npm test && npm run build"
   },
   "dependencies": {
