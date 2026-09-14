@@ -1,18 +1,23 @@
 // ============================================================================
 // BLACKOUT — MIDNIGHT NETWORK COMPACT SMART CONTRACT
 // Language: Compact (Midnight Network ZK Smart Contract DSL)
-// Pragma: Midnight Compact v0.20+ (Targeting Compact Compiler 0.34.0)
 //
 // Purpose: Privacy-preserving income threshold verification.
-// Proves: monthly_income >= required_income in Zero-Knowledge without disclosing
-// the monthly_income value to the public ledger or verifiers.
+// Security model (v2):
+//   1. A verifier registers an immutable request once.
+//   2. A prover may submit exactly one result for that registered request.
+//   3. The proof circuit MUST use the registered threshold and verifier key.
+//   4. Results are append-only and cannot overwrite the registration record.
+//   5. Private monthly income and salt never enter public ledger state.
 // ============================================================================
 
 pragma language_version >= 0.20.0;
 
 import CompactStandardLibrary;
 
-// Public ledger state record
+// Public request registration. `is_verified` and `commitment` are intentionally
+// initialized to false/default here and never mutated; final outcomes live in
+// the append-only `results` map below.
 export struct VerificationRecord {
     request_id: Bytes<32>;
     required_income: Uint<64>;
@@ -22,56 +27,79 @@ export struct VerificationRecord {
     commitment: Bytes<32>;
 }
 
-// Ledger storage
+// Immutable request registrations and append-only final results.
 export ledger records: Map<Bytes<32>, VerificationRecord>;
+export ledger results: Map<Bytes<32>, VerificationRecord>;
 
-// Private witness definitions (Executed locally off-chain inside the prover)
+// Private witness definitions (executed locally off-chain inside the prover).
 witness get_private_monthly_income(): Uint<64>;
 witness get_private_income_salt(): Bytes<32>;
 
-// ZK Circuit: Proves income threshold without revealing income
+// ZK Circuit: proves income threshold without revealing income.
 export circuit prove_income_threshold(
     request_id: Bytes<32>,
     required_income: Uint<64>,
     verifier_pk: Bytes<32>,
     timestamp: Uint<64>
 ): Boolean {
-    // 1. Fetch private witness state directly inside the zero-knowledge circuit
+    const public_request_id: Bytes<32> = disclose(request_id);
+    const public_required_income: Uint<64> = disclose(required_income);
+    const public_verifier_pk: Bytes<32> = disclose(verifier_pk);
+    const public_timestamp: Uint<64> = disclose(timestamp);
+
+    // A proof is valid only for an already-registered request.
+    assert(records.member(public_request_id), "Request is not registered");
+
+    // One request -> one final proof result. This is the protocol-level replay
+    // barrier; browser storage is never relied upon for replay security.
+    assert(!results.member(public_request_id), "Request already has a proof result");
+
+    const registered: VerificationRecord = records.lookup(public_request_id);
+
+    // Bind the proof to the verifier's immutable registration. A caller cannot
+    // lower the threshold or substitute another verifier when proving.
+    assert(registered.required_income == public_required_income, "Registered threshold mismatch");
+    assert(registered.verifier_pk == public_verifier_pk, "Registered verifier mismatch");
+
+    // Private witness state exists only inside the zero-knowledge circuit.
     const private_income: Uint<64> = get_private_monthly_income();
     const private_salt: Bytes<32> = get_private_income_salt();
 
-    // 2. Cryptographic commitment calculation (Persistent hash of private witness)
     const computed_commitment: Bytes<32> = persistentHash<[Uint<64>, Bytes<32>]>([private_income, private_salt]);
 
-    // 3. Evaluate the private threshold constraint inside ZK
-    // The boolean qualification outcome is explicitly disclosed to the public ledger.
-    const is_satisfied: Boolean = disclose(private_income >= required_income);
+    // Only the qualification boolean and witness commitment cross the
+    // disclosure boundary. The exact income and salt remain private.
+    const is_satisfied: Boolean = disclose(private_income >= registered.required_income);
     const disclosed_commitment: Bytes<32> = disclose(computed_commitment);
 
-    // 4. Update ledger state atomically with only the public verification result
-    records.insert(disclose(request_id), VerificationRecord {
-        request_id: disclose(request_id),
-        required_income: disclose(required_income),
+    // Append a final result under the same request id. Never update the
+    // registration Map entry; this keeps request policy immutable.
+    results.insert(public_request_id, VerificationRecord {
+        request_id: public_request_id,
+        required_income: registered.required_income,
         is_verified: is_satisfied,
-        timestamp: disclose(timestamp),
-        verifier_pk: disclose(verifier_pk),
+        timestamp: public_timestamp,
+        verifier_pk: registered.verifier_pk,
         commitment: disclosed_commitment
     });
 
-    // 5. Return boolean verification outcome to calling transaction
-    // Notice: private_income NEVER appears in public ledger, state, or return value!
     return is_satisfied;
 }
 
-// Circuit: Verifier registration of a verification request
+// Verifier registration: a request id may be registered exactly once.
 export circuit register_verification_request(
     request_id: Bytes<32>,
     required_income: Uint<64>,
     verifier_pk: Bytes<32>,
     timestamp: Uint<64>
 ): [] {
-    records.insert(disclose(request_id), VerificationRecord {
-        request_id: disclose(request_id),
+    const public_request_id: Bytes<32> = disclose(request_id);
+
+    assert(!records.member(public_request_id), "Request id already registered");
+    assert(!results.member(public_request_id), "Request id already finalized");
+
+    records.insert(public_request_id, VerificationRecord {
+        request_id: public_request_id,
         required_income: disclose(required_income),
         is_verified: false,
         timestamp: disclose(timestamp),
@@ -80,4 +108,3 @@ export circuit register_verification_request(
     });
     return [];
 }
-
