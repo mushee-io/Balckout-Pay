@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -33,8 +35,69 @@ jobs:
       - name: Typecheck, privacy tests, Compact compile and production build
         run: npm run ci
 
+      - name: Production bundle smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/blackout-preview.log 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+
+          ready=0
+          for _ in {1..20}; do
+            if curl --fail --silent --show-error http://127.0.0.1:4173/ > /tmp/blackout-index.html; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$ready" -ne 1 ]; then
+            cat /tmp/blackout-preview.log
+            exit 1
+          fi
+
+          grep -q 'id="root"' /tmp/blackout-index.html
+          asset_path=$(grep -oE 'src="/assets/[^"]+\.js"' /tmp/blackout-index.html | head -n 1 | cut -d '"' -f 2)
+          test -n "$asset_path"
+          curl --fail --silent --show-error "http://127.0.0.1:4173${asset_path}" > /dev/null
+
+      - name: Browser runtime smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run preview -- --host 127.0.0.1 --port 4174 > /tmp/blackout-browser-preview.log 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+
+          for _ in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:4174/ > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          google-chrome \
+            --headless=new \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-dev-shm-usage \
+            --virtual-time-budget=5000 \
+            --enable-logging=stderr \
+            --dump-dom \
+            http://127.0.0.1:4174/ \
+            > /tmp/blackout-rendered.html \
+            2> /tmp/blackout-chrome.log
+
+          grep -q 'CREATE PRIVATE PROOF' /tmp/blackout-rendered.html
+
+          if grep -Eq 'Uncaught (Error|TypeError|ReferenceError|SyntaxError)|Uncaught in promise' /tmp/blackout-chrome.log; then
+            cat /tmp/blackout-chrome.log
+            exit 1
+          fi
+
       - name: Dependency audit
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=moderate
 
   solidity:
     runs-on: ubuntu-latest
@@ -45,11 +108,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
-          version: stable
+          version: v1.8.1
 
       - name: Solidity format gate
         run: forge fmt --check
