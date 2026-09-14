@@ -240,8 +240,9 @@ contract BlackoutReceiptRegistry {
     /// @notice True only for a qualified, non-revoked, non-expired receipt.
     function isValid(bytes32 receiptId) external view returns (bool) {
         Receipt storage receipt = _receipts[receiptId];
-        return receipt.attester != address(0) && receipt.qualified && !receipt.revoked
-            && block.timestamp <= receipt.expiresAt;
+        return
+            receipt.attester != address(0) && receipt.qualified && !receipt.revoked
+                && block.timestamp <= receipt.expiresAt;
     }
 
     /// @notice Distinguishes an absent receipt from a present FAIL receipt.
@@ -251,9 +252,8 @@ contract BlackoutReceiptRegistry {
 
     function _validateInput(ReceiptInput calldata input) private view {
         if (
-            input.requestId == bytes32(0) || input.midnightTxHash == bytes32(0)
-                || input.policyHash == bytes32(0) || input.commitment == bytes32(0)
-                || input.subjectNullifier == bytes32(0)
+            input.requestId == bytes32(0) || input.midnightTxHash == bytes32(0) || input.policyHash == bytes32(0)
+                || input.commitment == bytes32(0) || input.subjectNullifier == bytes32(0)
         ) revert ZeroValue();
 
         if (input.issuedAt > block.timestamp + MAX_CLOCK_SKEW) {
