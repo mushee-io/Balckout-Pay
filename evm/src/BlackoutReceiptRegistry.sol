@@ -176,6 +176,10 @@ contract BlackoutReceiptRegistry {
             )
         );
 
+        // bytes32(0) is used as the mapping sentinel; even an astronomically
+        // unlikely zero digest must fail closed rather than weaken replay guards.
+        if (receiptId == bytes32(0)) revert ZeroValue();
+
         // Defensive: cryptographic collision or storage corruption must fail closed.
         if (_receipts[receiptId].attester != address(0)) {
             revert RequestAlreadyAnchored(input.requestId);
@@ -211,11 +215,14 @@ contract BlackoutReceiptRegistry {
         );
     }
 
-    /// @notice Revokes a receipt. The original attester or current admin may revoke.
+    /// @notice Revokes a receipt. The current admin or an active original attester may revoke.
+    /// @dev Removing an attester immediately removes its ability to mutate prior receipts.
     function revokeReceipt(bytes32 receiptId, bytes32 reasonHash) external {
         Receipt storage receipt = _receipts[receiptId];
         if (receipt.attester == address(0)) revert ReceiptNotFound(receiptId);
-        if (msg.sender != admin && msg.sender != receipt.attester) revert Unauthorized();
+
+        bool activeOriginalAttester = msg.sender == receipt.attester && isAttester[msg.sender];
+        if (msg.sender != admin && !activeOriginalAttester) revert Unauthorized();
         if (receipt.revoked) revert ReceiptAlreadyRevoked(receiptId);
         if (reasonHash == bytes32(0)) revert ZeroValue();
 
