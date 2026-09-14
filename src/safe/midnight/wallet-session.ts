@@ -37,21 +37,29 @@ function normalizeConfiguration(configuration: SafeWalletSession['configuration'
 }
 
 export async function connectBlackoutSafeWallet(): Promise<SafeWalletSession> {
-  const view = await connectLiveLaceWallet('Midnight Preview');
-  const shared = getActiveLaceSession();
+  let shared = getActiveLaceSession();
+  let walletName = 'Midnight wallet';
+
+  if (!shared || shared.networkId !== 'preview') {
+    const view = await connectLiveLaceWallet('Midnight Preview');
+    walletName = view.walletName;
+    shared = getActiveLaceSession();
+  }
+
   if (!shared || shared.networkId !== 'preview') throw new Error('BLACKOUT_SAFE_PREVIEW_SESSION_REQUIRED');
   const configuration = normalizeConfiguration({ ...shared.configuration, networkId: shared.networkId });
   if (!shared.addresses.shieldedCoinPublicKey || !shared.addresses.shieldedEncryptionPublicKey) {
     throw new Error('BLACKOUT_SAFE_SHIELDED_KEYS_MISSING');
   }
+
   setNetworkId('preview');
   const session: SafeWalletSession = {
     wallet: shared.wallet,
     configuration,
     addresses: shared.addresses,
     networkId: 'preview',
-    walletName: view.walletName,
-    connectorId: view.walletName,
+    walletName,
+    connectorId: walletName,
   };
   if (activeSession && activeSession !== session) disposeBlackoutSafePrivateStateScope(activeSession);
   activeSession = session;
