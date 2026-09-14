@@ -129,7 +129,7 @@ contract BlackoutReceiptRegistryTest {
         assert(registry.getReceipt(receiptId).revoked);
     }
 
-    function testOriginalAttesterMayRevokeAfterAdminRotation() public {
+    function testActiveOriginalAttesterMayRevoke() public {
         RegistryCaller attester = new RegistryCaller();
         registry.setAttester(address(attester), true);
 
@@ -137,6 +137,27 @@ contract BlackoutReceiptRegistryTest {
         bytes32 receiptId = attester.register(registry, input);
         attester.revoke(registry, receiptId, keccak256("SOURCE_REVOKED"));
 
+        assert(!registry.isValid(receiptId));
+    }
+
+    function testRemovedAttesterLosesRevocationPower() public {
+        RegistryCaller attester = new RegistryCaller();
+        registry.setAttester(address(attester), true);
+
+        bytes32 receiptId = attester.register(registry, _validInput());
+        registry.setAttester(address(attester), false);
+
+        bool reverted;
+        try attester.revoke(registry, receiptId, keccak256("COMPROMISED_KEY_ATTEMPT")) {
+            reverted = false;
+        } catch {
+            reverted = true;
+        }
+
+        assert(reverted);
+        assert(registry.isValid(receiptId));
+
+        registry.revokeReceipt(receiptId, keccak256("ADMIN_REVOKED_AFTER_KEY_REMOVAL"));
         assert(!registry.isValid(receiptId));
     }
 
@@ -211,6 +232,25 @@ contract BlackoutReceiptRegistryTest {
             reverted = true;
         }
         assert(reverted);
+    }
+
+    function testRotatedAdminCannotRevokeAfterLosingAttesterRole() public {
+        bytes32 receiptId = registry.registerReceipt(_validInput());
+        RegistryCaller nextAdmin = new RegistryCaller();
+        registry.transferAdmin(address(nextAdmin));
+        nextAdmin.acceptAdmin(registry);
+
+        bool reverted;
+        try registry.revokeReceipt(receiptId, keccak256("OLD_ADMIN_ATTEMPT")) {
+            reverted = false;
+        } catch {
+            reverted = true;
+        }
+        assert(reverted);
+        assert(registry.isValid(receiptId));
+
+        nextAdmin.revoke(registry, receiptId, keccak256("NEW_ADMIN_REVOCATION"));
+        assert(!registry.isValid(receiptId));
     }
 
     function testReceiptIdIsDomainSeparatedByRegistryAddress() public {
