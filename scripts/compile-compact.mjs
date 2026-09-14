@@ -6,37 +6,49 @@ import process from 'node:process';
 const compiler = resolve('bin/compact');
 const source = resolve('contract/income_verifier.compact');
 const output = resolve('contract/build');
+// Keep compiler/runtime compatibility explicit. The current application uses
+// @midnight-ntwrk/compact-runtime 0.16.0, matching Compact toolchain 0.31.1.
+const toolchainVersion = process.env.COMPACT_TOOLCHAIN_VERSION || '0.31.1';
 
 if (process.platform === 'win32') {
-  throw new Error('The bundled Compact compiler is a Linux binary. Run this project in WSL/Linux so generated Midnight artifacts cannot become stale.');
+  throw new Error('The bundled Compact devtool is a Linux binary. Run this project in WSL/Linux so generated Midnight artifacts cannot become stale.');
 }
 
 await access(compiler);
 await access(source);
 await chmod(compiler, 0o755);
+
+function runCompact(args) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(compiler, args, {
+      stdio: 'inherit',
+      env: process.env,
+    });
+
+    child.once('error', rejectPromise);
+    child.once('exit', (code, signal) => {
+      if (signal) {
+        rejectPromise(new Error(`Compact ${args[0]} terminated by signal ${signal}.`));
+        return;
+      }
+      if (code !== 0) {
+        rejectPromise(new Error(`Compact ${args[0]} exited with code ${code}.`));
+        return;
+      }
+      resolvePromise();
+    });
+  });
+}
+
+// The repository stores the Compact devtool launcher. On clean runners it has
+// no default compactc selected, so install/select the pinned compiler first.
+await runCompact(['update', toolchainVersion]);
+
 await rm(output, { recursive: true, force: true });
-
-await new Promise((resolvePromise, rejectPromise) => {
-  const child = spawn(compiler, ['compile', source, output], {
-    stdio: 'inherit',
-    env: process.env,
-  });
-
-  child.once('error', rejectPromise);
-  child.once('exit', (code, signal) => {
-    if (signal) {
-      rejectPromise(new Error(`Compact compiler terminated by signal ${signal}.`));
-      return;
-    }
-    if (code !== 0) {
-      rejectPromise(new Error(`Compact compiler exited with code ${code}.`));
-      return;
-    }
-    resolvePromise();
-  });
-});
+await runCompact(['compile', source, output]);
 
 const required = [
+  'compiler/contract-info.json',
   'contract/index.js',
   'contract/index.d.ts',
   'keys/prove_income_threshold.prover',
@@ -48,4 +60,4 @@ const required = [
 ];
 
 await Promise.all(required.map((path) => access(resolve(output, path))));
-console.log('Compact contract compiled and required Midnight artifacts verified.');
+console.log(`Compact ${toolchainVersion} contract compiled and required Midnight artifacts verified.`);
