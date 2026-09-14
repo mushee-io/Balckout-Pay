@@ -18,8 +18,9 @@
     "prelint": "npm run midnight:compile",
     "lint": "tsc --noEmit",
     "pretest": "npm run midnight:compile",
-    "test": "tsx src/tests/privacy.test.ts",
-    "ci": "npm run lint && npm test && npm run build"
+    "test": "tsx src/tests/privacy.test.ts && tsx src/tests/hardening.test.ts",
+    "build:verified": "npm run build",
+    "ci": "npm run lint && npm test && npm run build:verified"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
