@@ -2,7 +2,7 @@
 
 **PROVE YOU QUALIFY. REVEAL NOTHING ELSE.**
 
-BlackoutPay is privacy-first eligibility infrastructure built on the **Midnight Network**.
+BlackoutPay is privacy-first eligibility infrastructure built on the **Midnight Network**, with an optional hardened **Solidity/EVM receipt layer** for public interoperability.
 
 Instead of sending raw payslips, bank statements and private financial documents to every verifier, the protocol is designed to prove a narrowly defined eligibility condition while keeping the underlying witness private.
 
@@ -56,6 +56,23 @@ LIVE mode requires a Midnight DApp Connector v4 session, verifies the wallet-rep
 
 Dev, test, typecheck and production build paths bootstrap the pinned Compact compiler and regenerate the contract artifacts. Production packaging fails if required proving/verifying keys or ZKIR files are missing.
 
+### Solidity / EVM receipt interoperability
+
+`evm/src/BlackoutReceiptRegistry.sol` provides an optional public receipt anchor for EVM applications. It stores only public hashes/nullifiers and the public qualification result; it does **not** put raw salary, identity, bank data, private witnesses or credential documents on EVM.
+
+The EVM registry deliberately does **not** claim to verify Midnight's zero-knowledge proof itself. An allowlisted attester anchors a finalized public Midnight digest. The Solidity layer adds:
+
+- one receipt per Midnight request id;
+- one receipt per Midnight transaction hash;
+- domain-separated receipt ids across chain, registry and Midnight source environment;
+- two-step admin rotation with no renounce path;
+- attester allowlisting and immediate key revocation;
+- emergency pause for new receipt anchors;
+- receipt expiry, clock-skew bounds and explicit revocation;
+- fail-closed handling for zero digests and removed attesters.
+
+See [`evm/README.md`](./evm/README.md) for the complete trust and privacy boundary.
+
 ---
 
 ## Architecture
@@ -96,13 +113,15 @@ Dev, test, typecheck and production build paths bootstrap the pinned Compact com
 │  Private: exact income + salt                        │
 └───────────────────────────┬───────────────────────────┘
                             │ indexed state
-                            ▼
-┌───────────────────────────────────────────────────────┐
-│                    BLACKOUT UI                        │
-│                                                       │
-│  PASS / FAIL shown as authoritative only after       │
-│  Midnight indexer confirmation.                      │
-└───────────────────────────────────────────────────────┘
+              ┌─────────────┴──────────────┐
+              ▼                            ▼
+┌───────────────────────────┐  ┌────────────────────────┐
+│        BLACKOUT UI        │  │ OPTIONAL EVM RECEIPT   │
+│                           │  │ REGISTRY               │
+│ PASS / FAIL authoritative │  │                        │
+│ after indexer confirmation│  │ Public digest anchor   │
+└───────────────────────────┘  │ No private witness     │
+                               └────────────────────────┘
 ```
 
 ---
@@ -122,9 +141,14 @@ The implementation-backed checklist lives in [`SECURITY.md`](./SECURITY.md). Cur
 - [x] Indexer integrity checks
 - [x] Non-authoritative browser cache
 - [x] Fresh Compact compilation before build/test/typecheck
-- [x] CI typecheck, privacy tests, production build and high-severity dependency audit
 - [x] v2 deployment separation from pre-hardening contract state
 - [x] LIVE claim scope restricted to constraints actually enforced by Compact
+- [x] Solidity EVM receipt registry with request/transaction replay guards
+- [x] EVM attester allowlist, two-step governance, pause and revocation
+- [x] Removed EVM attesters immediately lose mutation rights
+- [x] EVM receipt freshness bounds and data-minimization boundary
+- [x] Independent Midnight/TypeScript and Solidity Foundry CI jobs
+- [x] Commit-pinned GitHub Actions in the security workflow
 
 ---
 
@@ -148,7 +172,7 @@ npm run dev
 
 The pre-dev hook installs/selects the pinned Compact toolchain, recompiles the contract, verifies/stages the ZK artifacts, then launches Vite on port 3000.
 
-### Security / privacy tests
+### Midnight security / privacy tests
 
 ```bash
 npm test
@@ -168,20 +192,42 @@ npm run lint
 npm run build
 ```
 
+### Solidity / Foundry security gate
+
+```bash
+cd evm
+forge fmt --check
+forge build --sizes
+forge test -vvv
+```
+
+The Solidity suite covers authorization, duplicate request/transaction replay, pause behavior, governance rotation, revoked-attester behavior, receipt revocation, timestamp/lifetime validation, domain separation and fuzzed receipt inputs.
+
 ### Full CI-equivalent gate
 
 ```bash
 npm run ci
 npm audit --audit-level=high
+
+cd evm
+forge fmt --check
+forge build --sizes
+forge test -vvv
 ```
 
 ---
 
-## Midnight deployment note
+## Deployment notes
+
+### Midnight
 
 The hardened v2 contract changes ledger semantics and therefore requires a **fresh real Midnight Preview deployment**. The application intentionally uses a new v2 contract-address storage key and does not silently reuse the old pre-hardening deployment.
 
 Until that v2 deployment succeeds, LIVE v2 should remain undeployed/fail-closed rather than falling back to fake or stale state.
+
+### EVM
+
+The Solidity receipt registry is implemented and tested but is **not represented as deployed** merely because it exists in this repository. A production deployment requires choosing the target EVM chain, production admin/multisig, attester model and immutable Midnight source-domain digest.
 
 ---
 
@@ -189,6 +235,7 @@ Until that v2 deployment succeeds, LIVE v2 should remain undeployed/fail-closed 
 
 - [`SECURITY.md`](./SECURITY.md) — implementation-backed threat model and completed hardening checklist.
 - [`MIDNIGHT_TOOLCHAIN_AUDIT.md`](./MIDNIGHT_TOOLCHAIN_AUDIT.md) — compiler/runtime compatibility and build-chain audit.
+- [`evm/README.md`](./evm/README.md) — Solidity receipt-registry trust model, privacy boundary and deployment inputs.
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — application and protocol architecture.
 - [`PRIVACY.md`](./PRIVACY.md) — privacy design and data-minimization notes.
 - [`DEMO.md`](./DEMO.md) — demonstration flow.
