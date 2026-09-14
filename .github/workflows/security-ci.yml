@@ -62,6 +62,42 @@ jobs:
           test -n "$asset_path"
           curl --fail --silent --show-error "http://127.0.0.1:4173${asset_path}" > /dev/null
 
+          # A Safe deployment installs verifier keys for every exported Compact
+          # entry point. Fail CI if a production bundle would ship without any
+          # verifier required by the constructor/deployment transaction.
+          for circuit in \
+            propose_private \
+            approve_private \
+            prove_quorum \
+            deposit_shielded \
+            execute_shielded_transfer \
+            governance_pause \
+            governance_resume \
+            governance_cancel_proposal \
+            governance_rotate_membership \
+            governance_change_policy \
+            receipt_statement; do
+            curl --fail --silent --show-error \
+              "http://127.0.0.1:4173/zk-artifacts/blackout-safe/keys/${circuit}.verifier" \
+              > /dev/null
+          done
+
+          # Interactive flows also require proving and ZKIR material in-browser.
+          for circuit in \
+            propose_private \
+            approve_private \
+            prove_quorum \
+            deposit_shielded \
+            execute_shielded_transfer \
+            receipt_statement; do
+            curl --fail --silent --show-error \
+              "http://127.0.0.1:4173/zk-artifacts/blackout-safe/keys/${circuit}.prover" \
+              > /dev/null
+            curl --fail --silent --show-error \
+              "http://127.0.0.1:4173/zk-artifacts/blackout-safe/zkir/${circuit}.bzkir" \
+              > /dev/null
+          done
+
       - name: Browser runtime smoke test
         shell: bash
         run: |
