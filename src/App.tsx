@@ -36,15 +36,19 @@ import {
 } from './midnight/evidence-store';
 import { PayrollDashboard } from './payroll/components/PayrollDashboard';
 import { PayrollHomeSection } from './payroll/components/PayrollHomeSection';
+import { SafeHomeSection, SafeSection } from './safe/SafeSection';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>(() => {
     const hash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
-    if (['prove', 'request', 'developers', 'verify', 'payroll'].includes(hash)) {
+    if (['prove', 'request', 'developers', 'verify', 'payroll', 'safe'].includes(hash)) {
       return hash;
     }
     if (typeof window !== 'undefined' && window.location.pathname.toLowerCase().includes('payroll')) {
       return 'payroll';
+    }
+    if (typeof window !== 'undefined' && window.location.pathname.toLowerCase().includes('safe')) {
+      return 'safe';
     }
     return 'home';
   });
@@ -74,7 +78,7 @@ export default function App() {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
-      if (['prove', 'request', 'developers', 'verify', 'payroll'].includes(hash)) {
+      if (['prove', 'request', 'developers', 'verify', 'payroll', 'safe'].includes(hash)) {
         setActiveTab(hash);
       } else if (hash === 'home' || hash === '' || hash === '/') {
         setActiveTab('home');
@@ -219,6 +223,7 @@ export default function App() {
               onOpenTests={() => setIsTestsOpen(true)}
             />
             <PayrollHomeSection onOpenPayroll={() => handleNavigateTab('payroll')} />
+            <SafeHomeSection onOpenSafe={() => handleNavigateTab('safe')} />
           </>
         )}
 
@@ -258,6 +263,13 @@ export default function App() {
             onNavigateToVerify={() => handleNavigateTab('prove')}
             walletMode={wallet.mode}
             onSwitchWalletMode={(mode) => handleConnectWallet(mode)}
+          />
+        )}
+
+        {activeTab === 'safe' && (
+          <SafeSection
+            wallet={wallet}
+            onConnectLive={() => handleConnectWallet('LIVE')}
           />
         )}
       </main>
