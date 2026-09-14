@@ -1,0 +1,2 @@
+Redeploy trigger: 2026-09-14T18:52:00+01:00
+Reason: retry production deployment after prior Vercel Hobby build-rate limit.
