@@ -165,16 +165,20 @@ GitHub Security CI runs the Midnight/application job:
 3. TypeScript typecheck,
 4. privacy/security tests,
 5. production build with required proving artifacts,
-6. dependency audit at high-severity threshold.
+6. HTTP verification that the built Vite bundle and generated JavaScript asset can be served,
+7. headless-Chrome execution of the production bundle with rendered-UI and uncaught-runtime-error checks,
+8. dependency audit at the **moderate-severity** threshold.
+
+Unused Express and `vite-plugin-top-level-await` dependency paths were removed after confirming they were not used by the application. The regenerated lockfile currently reports **0 known npm vulnerabilities** at the audit gate.
 
 It also runs an independent Solidity job:
 
-1. commit-pinned Foundry toolchain action,
+1. commit-pinned Foundry toolchain action installing exact **Foundry v1.8.1**,
 2. `forge fmt --check`,
-3. `forge build --sizes` with Solc 0.8.24,
-4. `forge test -vvv`, including fuzzed receipt inputs and authorization/replay/governance cases.
+3. `forge build --sizes` with pinned Solc 0.8.24,
+4. `forge test -vvv`, including 512-run fuzzed receipt inputs and authorization/replay/governance cases.
 
-GitHub Actions used by the security workflow are pinned to commit SHAs rather than floating tags.
+GitHub Actions used by the security workflow are pinned to commit SHAs rather than floating tags, and checkout credentials are not persisted in the permanent security jobs.
 
 ---
 
@@ -212,6 +216,10 @@ The EVM receipt registry has its own explicit receipt expiry check. That EVM exp
 - [x] **EVM Revoked-Key Fail Closed** — a removed attester cannot mutate or revoke its prior receipts.
 - [x] **EVM Data-Minimization Boundary** — Solidity stores public digests/nullifiers only and documents sensitive plaintext as forbidden.
 - [x] **EVM Receipt Freshness** — future skew and maximum lifetime are bounded and expired receipts fail validity checks.
+- [x] **Zero Known npm Advisories** — unused vulnerable dependency paths were removed and the regenerated lockfile passes the moderate-or-higher audit gate with zero reported vulnerabilities.
+- [x] **Production HTTP Smoke** — CI serves the production bundle and verifies the generated JavaScript asset is retrievable.
+- [x] **Production Browser Runtime Smoke** — CI executes the built site in headless Chrome and verifies initial UI rendering without uncaught browser exceptions.
+- [x] **Reproducible Solidity Toolchain** — Foundry v1.8.1 and Solc 0.8.24 are fixed in CI/configuration.
 - [x] **Dual CI Quality Gate** — Midnight/TypeScript and Solidity format/build/test jobs run independently on hardening/main changes.
 
 ---
