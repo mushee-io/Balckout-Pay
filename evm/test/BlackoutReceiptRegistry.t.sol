@@ -2,23 +2,7 @@
 pragma solidity 0.8.24;
 
 import {BlackoutReceiptRegistry} from "../src/BlackoutReceiptRegistry.sol";
-
-contract RegistryCaller {
-    function register(BlackoutReceiptRegistry registry, BlackoutReceiptRegistry.ReceiptInput calldata input)
-        external
-        returns (bytes32)
-    {
-        return registry.registerReceipt(input);
-    }
-
-    function acceptAdmin(BlackoutReceiptRegistry registry) external {
-        registry.acceptAdmin();
-    }
-
-    function revoke(BlackoutReceiptRegistry registry, bytes32 receiptId, bytes32 reasonHash) external {
-        registry.revokeReceipt(receiptId, reasonHash);
-    }
-}
+import {RegistryCaller} from "./helpers/RegistryCaller.sol";
 
 contract BlackoutReceiptRegistryTest {
     bytes32 internal constant SOURCE_DOMAIN = bytes32(uint256(0xB10C));
@@ -31,7 +15,7 @@ contract BlackoutReceiptRegistryTest {
     function testAdminStartsAsAttester() public view {
         assert(registry.admin() == address(this));
         assert(registry.isAttester(address(this)));
-        assert(registry.sourceDomain() == SOURCE_DOMAIN);
+        assert(registry.SOURCE_DOMAIN() == SOURCE_DOMAIN);
     }
 
     function testAuthorizedAttesterCanAnchorQualifiedReceipt() public {
@@ -71,7 +55,8 @@ contract BlackoutReceiptRegistryTest {
 
     function testDuplicateRequestIdIsRejected() public {
         BlackoutReceiptRegistry.ReceiptInput memory first = _validInput();
-        registry.registerReceipt(first);
+        bytes32 firstId = registry.registerReceipt(first);
+        assert(firstId != bytes32(0));
 
         BlackoutReceiptRegistry.ReceiptInput memory second = _validInput();
         second.midnightTxHash = bytes32(uint256(0x9999));
@@ -88,7 +73,8 @@ contract BlackoutReceiptRegistryTest {
 
     function testDuplicateMidnightTransactionIsRejected() public {
         BlackoutReceiptRegistry.ReceiptInput memory first = _validInput();
-        registry.registerReceipt(first);
+        bytes32 firstId = registry.registerReceipt(first);
+        assert(firstId != bytes32(0));
 
         BlackoutReceiptRegistry.ReceiptInput memory second = _validInput();
         second.requestId = bytes32(uint256(0x7777));
@@ -161,7 +147,7 @@ contract BlackoutReceiptRegistryTest {
         assert(!registry.isValid(receiptId));
     }
 
-    function testFailReceiptExistsButIsNotValid() public {
+    function testRejectedReceiptExistsButIsNotValid() public {
         BlackoutReceiptRegistry.ReceiptInput memory input = _validInput();
         input.qualified = false;
 
@@ -172,7 +158,7 @@ contract BlackoutReceiptRegistryTest {
 
     function testFutureTimestampBeyondClockSkewIsRejected() public {
         BlackoutReceiptRegistry.ReceiptInput memory input = _validInput();
-        input.issuedAt = uint64(block.timestamp + registry.MAX_CLOCK_SKEW() + 1);
+        input.issuedAt = _now64() + registry.MAX_CLOCK_SKEW() + 1;
         input.expiresAt = input.issuedAt + 1 days;
         bool reverted;
 
@@ -281,7 +267,7 @@ contract BlackoutReceiptRegistryTest {
         input.qualified = qualified;
 
         uint64 maxTtl = registry.MAX_RECEIPT_TTL();
-        ttl = uint64(uint256(ttl) % maxTtl) + 1;
+        ttl = (ttl % maxTtl) + 1;
         input.expiresAt = input.issuedAt + ttl;
 
         bytes32 receiptId = registry.registerReceipt(input);
@@ -290,16 +276,23 @@ contract BlackoutReceiptRegistryTest {
     }
 
     function _validInput() internal view returns (BlackoutReceiptRegistry.ReceiptInput memory input) {
+        uint64 nowTs = _now64();
         input = BlackoutReceiptRegistry.ReceiptInput({
             requestId: bytes32(uint256(0x1001)),
             midnightTxHash: bytes32(uint256(0x2002)),
             policyHash: bytes32(uint256(0x3003)),
             commitment: bytes32(uint256(0x4004)),
             subjectNullifier: bytes32(uint256(0x5005)),
-            issuedAt: uint64(block.timestamp),
-            expiresAt: uint64(block.timestamp + 30 days),
+            issuedAt: nowTs,
+            expiresAt: nowTs + 30 days,
             qualified: true
         });
+    }
+
+    function _now64() internal view returns (uint64) {
+        // Foundry test-chain timestamps are bounded far below uint64 max.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint64(block.timestamp);
     }
 
     function _nonZero(bytes32 value, uint256 fallbackValue) internal pure returns (bytes32) {
