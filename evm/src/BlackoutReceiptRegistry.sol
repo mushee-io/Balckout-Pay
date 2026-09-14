@@ -49,7 +49,7 @@ contract BlackoutReceiptRegistry {
 
     address public admin;
     address public pendingAdmin;
-    bytes32 public immutable sourceDomain;
+    bytes32 public immutable SOURCE_DOMAIN;
     bool public paused;
 
     mapping(address => bool) public isAttester;
@@ -77,17 +77,17 @@ contract BlackoutReceiptRegistry {
     event ReceiptRevoked(bytes32 indexed receiptId, address indexed revokedBy, bytes32 indexed reasonHash);
 
     modifier onlyAdmin() {
-        if (msg.sender != admin) revert Unauthorized();
+        _checkAdmin();
         _;
     }
 
     modifier onlyAttester() {
-        if (!isAttester[msg.sender]) revert Unauthorized();
+        _checkAttester();
         _;
     }
 
     modifier whenNotPaused() {
-        if (paused) revert RegistryPaused();
+        _checkNotPaused();
         _;
     }
 
@@ -96,18 +96,16 @@ contract BlackoutReceiptRegistry {
         if (midnightSourceDomain == bytes32(0)) revert ZeroValue();
 
         admin = initialAdmin;
-        sourceDomain = midnightSourceDomain;
-        isAttester[initialAdmin] = true;
+        SOURCE_DOMAIN = midnightSourceDomain;
+        _setAttester(initialAdmin, true);
 
-        emit AttesterSet(initialAdmin, true);
         emit AdminTransferred(address(0), initialAdmin);
     }
 
     /// @notice Enables or disables an authorized Midnight receipt attester.
     function setAttester(address attester, bool allowed) external onlyAdmin {
         if (attester == address(0)) revert ZeroAddress();
-        isAttester[attester] = allowed;
-        emit AttesterSet(attester, allowed);
+        _setAttester(attester, allowed);
     }
 
     /// @notice Begins a two-step admin transfer. There is deliberately no renounce path.
@@ -126,12 +124,10 @@ contract BlackoutReceiptRegistry {
         pendingAdmin = address(0);
 
         if (isAttester[previousAdmin]) {
-            isAttester[previousAdmin] = false;
-            emit AttesterSet(previousAdmin, false);
+            _setAttester(previousAdmin, false);
         }
         if (!isAttester[msg.sender]) {
-            isAttester[msg.sender] = true;
-            emit AttesterSet(msg.sender, true);
+            _setAttester(msg.sender, true);
         }
 
         emit AdminTransferred(previousAdmin, msg.sender);
@@ -164,7 +160,7 @@ contract BlackoutReceiptRegistry {
             abi.encode(
                 block.chainid,
                 address(this),
-                sourceDomain,
+                SOURCE_DOMAIN,
                 input.requestId,
                 input.midnightTxHash,
                 input.policyHash,
@@ -240,6 +236,9 @@ contract BlackoutReceiptRegistry {
     /// @notice True only for a qualified, non-revoked, non-expired receipt.
     function isValid(bytes32 receiptId) external view returns (bool) {
         Receipt storage receipt = _receipts[receiptId];
+        // Receipt expiry intentionally uses chain time; second-level validator skew does
+        // not affect the underlying Midnight proof and only changes EVM cache validity.
+        // forge-lint: disable-next-line(block-timestamp)
         return
             receipt.attester != address(0) && receipt.qualified && !receipt.revoked
                 && block.timestamp <= receipt.expiresAt;
@@ -250,16 +249,37 @@ contract BlackoutReceiptRegistry {
         return _receipts[receiptId].attester != address(0);
     }
 
+    function _setAttester(address attester, bool allowed) private {
+        isAttester[attester] = allowed;
+        emit AttesterSet(attester, allowed);
+    }
+
+    function _checkAdmin() private view {
+        if (msg.sender != admin) revert Unauthorized();
+    }
+
+    function _checkAttester() private view {
+        if (!isAttester[msg.sender]) revert Unauthorized();
+    }
+
+    function _checkNotPaused() private view {
+        if (paused) revert RegistryPaused();
+    }
+
     function _validateInput(ReceiptInput calldata input) private view {
         if (
             input.requestId == bytes32(0) || input.midnightTxHash == bytes32(0) || input.policyHash == bytes32(0)
                 || input.commitment == bytes32(0) || input.subjectNullifier == bytes32(0)
         ) revert ZeroValue();
 
+        // Chain time is used only to bound receipt freshness. The protocol already
+        // tolerates MAX_CLOCK_SKEW and does not expose private witness material here.
+        // forge-lint: disable-next-line(block-timestamp)
         if (input.issuedAt > block.timestamp + MAX_CLOCK_SKEW) {
             revert InvalidIssuedAt(input.issuedAt);
         }
 
+        // forge-lint: disable-next-line(block-timestamp)
         if (
             input.expiresAt <= input.issuedAt || input.expiresAt <= block.timestamp
                 || input.expiresAt - input.issuedAt > MAX_RECEIPT_TTL
