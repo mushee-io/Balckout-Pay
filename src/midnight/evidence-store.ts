@@ -74,9 +74,21 @@ function isSafeLiveEvidence(value: unknown): value is VerificationRequest {
     return false;
   }
 
-  // A cached final status without a matching LIVE receipt is not evidence.
+  // A cached final status without a matching LIVE submission receipt is invalid
+  // even as cache data. A receipt proves submission, not final chain authority.
   if (req.status !== 'PENDING' && !req.proofResult) return false;
   return true;
+}
+
+function isIndexerFinal(request: VerificationRequest): boolean {
+  // fetchOnChainContractRecords currently emits finalized indexer records without
+  // attaching the browser's local proof receipt. In-memory optimistic proof
+  // results carry proofResult and therefore must not be treated as finalized.
+  return (
+    request.isLiveOnChain === true &&
+    (request.status === 'VERIFIED' || request.status === 'REJECTED') &&
+    request.proofResult === undefined
+  );
 }
 
 export function loadPublicLiveEvidence(): VerificationRequest[] {
@@ -109,39 +121,61 @@ export function persistPublicLiveEvidence(request: VerificationRequest): void {
 /**
  * Merge browser convenience state with authoritative indexer state.
  *
- * Security rule: a browser-only entry is allowed only while PENDING and without
- * a proof receipt. As soon as the indexer exposes a request result, every
- * security-critical field comes from the network record. LocalStorage can never
- * overwrite status, threshold, verifier, commitment, or proof outcome.
+ * Security rule: a browser-only entry is displayable only as PENDING. A locally
+ * submitted proof stays PENDING until the Midnight indexer independently returns
+ * the append-only contract result. LocalStorage and optimistic in-memory state
+ * can never create a PASS/FAIL result.
  */
 export function mergePublicLiveEvidence(networkRequests: VerificationRequest[]): VerificationRequest[] {
   const persisted = loadPublicLiveEvidence();
+  const persistedById = new Map(persisted.map((request) => [request.id, request]));
   const merged = new Map<string, VerificationRequest>();
 
-  for (const network of networkRequests) {
-    if (network.isLiveOnChain) merged.set(network.id, network);
-  }
+  for (const candidate of networkRequests) {
+    if (!candidate.isLiveOnChain) continue;
+    const saved = persistedById.get(candidate.id);
 
-  for (const saved of persisted) {
-    const network = merged.get(saved.id);
-    if (network) {
-      // Preserve only human-facing metadata that is not used for authorization.
-      merged.set(saved.id, {
-        ...saved,
-        ...network,
-        title: saved.title || network.title,
-        purpose: saved.purpose || network.purpose,
-        verifierName: saved.verifierName || network.verifierName,
-        notes: network.notes || saved.notes,
+    if (isIndexerFinal(candidate)) {
+      merged.set(candidate.id, {
+        ...(saved ?? candidate),
+        ...candidate,
+        title: saved?.title || candidate.title,
+        purpose: saved?.purpose || candidate.purpose,
+        verifierName: saved?.verifierName || candidate.verifierName,
+        // Never attach a locally cached receipt to an indexer-derived outcome.
+        proofResult: undefined,
         isLiveOnChain: true,
       });
       continue;
     }
 
-    // An orphan browser record is displayable only as an unfinalized pending
-    // registration. Never display a browser-only PASS/FAIL as on-chain truth.
+    // Registration or locally-submitted proof not yet independently indexed.
+    // Force it back to PENDING even if local code produced a PASS/FAIL receipt.
+    merged.set(candidate.id, {
+      ...candidate,
+      status: 'PENDING',
+      proofResult: undefined,
+      notes: `${candidate.notes ? `${candidate.notes} ` : ''}Awaiting Midnight indexer finalization.`,
+      isLiveOnChain: true,
+    });
+  }
+
+  for (const saved of persisted) {
+    if (merged.has(saved.id)) continue;
     if (saved.status === 'PENDING' && !saved.proofResult) {
       merged.set(saved.id, saved);
+      continue;
+    }
+
+    // A locally stored proof receipt is useful only as evidence that submission
+    // was attempted. Downgrade it to PENDING until chain/indexer confirmation.
+    if (saved.proofResult) {
+      merged.set(saved.id, {
+        ...saved,
+        status: 'PENDING',
+        proofResult: undefined,
+        notes: `${saved.notes ? `${saved.notes} ` : ''}Proof submitted locally; awaiting Midnight indexer finalization.`,
+      });
     }
   }
 
@@ -149,15 +183,16 @@ export function mergePublicLiveEvidence(networkRequests: VerificationRequest[]):
 }
 
 /**
- * Export a clearly sourced evidence bundle. Network entries are authoritative;
- * local-only entries are explicitly marked pending/browser-cache and contain no
- * final proof assertion.
+ * Export a clearly sourced evidence bundle. Only indexer-finalized entries are
+ * authoritative. Local registrations/submissions are explicitly pending.
  */
 export function exportPublicLiveEvidence(networkRequests: VerificationRequest[] = []): string {
-  const networkIds = new Set(networkRequests.map((request) => request.id));
+  const authoritativeIds = new Set(
+    networkRequests.filter(isIndexerFinal).map((request) => request.id)
+  );
   const evidence = mergePublicLiveEvidence(networkRequests).map((request) => ({
-    source: networkIds.has(request.id) ? 'MIDNIGHT_INDEXER' : 'LOCAL_PENDING_CACHE',
-    authoritative: networkIds.has(request.id),
+    source: authoritativeIds.has(request.id) ? 'MIDNIGHT_INDEXER' : 'LOCAL_PENDING_CACHE',
+    authoritative: authoritativeIds.has(request.id),
     requestId: request.id,
     policyId: request.policyId,
     title: request.title,
@@ -167,19 +202,7 @@ export function exportPublicLiveEvidence(networkRequests: VerificationRequest[] 
     policyHash: request.policyHash,
     status: request.status,
     requestRegistrationNote: request.notes,
-    proof: networkIds.has(request.id) && request.proofResult
-      ? {
-          outcome: request.proofResult.isVerified ? 'PASS' : 'FAIL',
-          txId: request.proofResult.txHash ?? null,
-          blockHeight: request.proofResult.blockHeight ?? null,
-          contractAddress: request.proofResult.contractAddress,
-          circuit: request.proofResult.circuitName,
-          network: request.proofResult.midnightNetwork,
-          timestamp: request.proofResult.timestamp,
-          privateIncomeDisclosed: request.proofResult.privateIncomeDisclosed,
-          privateWitnessDisclosed: request.proofResult.privateWitnessDisclosed,
-        }
-      : null,
+    proof: null,
   }));
 
   return JSON.stringify({
