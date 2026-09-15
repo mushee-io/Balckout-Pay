@@ -7,7 +7,6 @@ import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-config-provider';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
-import { StateValue } from '@midnight-ntwrk/compact-runtime';
 import { ledger } from '../../contract/build/contract/index.js';
 import { getActiveLaceSession } from './wallet-connector';
 
@@ -103,8 +102,7 @@ export function getMidnightConfig(): MidnightConfig {
 /**
  * LIVE browser reads must use the exact Preview indexer exposed by the active
  * wallet session. Static env values are only a fallback for non-wallet tooling.
- * This keeps writes and reads on the same network/indexer and prevents a valid
- * proof transaction from being displayed as permanently PENDING.
+ * This keeps writes and reads on the same network/indexer.
  */
 function getLiveIndexerEndpoints(): { indexerUrl: string; indexerWsUrl: string } {
   const session = getActiveLaceSession();
@@ -178,51 +176,19 @@ export interface OnChainVerificationItem {
 }
 
 /**
- * Read finalized verification results from the hardened v2 contract.
- * `records` holds immutable registrations and `results` holds final outcomes.
+ * Read finalized verification results using MidnightJS' supported public-data
+ * provider. This avoids depending on a hand-written GraphQL state shape and
+ * keeps the frontend aligned with the wallet's Preview indexer API version.
  */
 export async function fetchOnChainContractRecords(contractAddress: string): Promise<OnChainVerificationItem[]> {
   const cleanAddress = normalizeContractAddress(contractAddress);
   if (!cleanAddress) return [];
 
-  const { indexerUrl } = getLiveIndexerEndpoints();
-  if (!indexerUrl) throw new Error('Midnight Preview indexer URL is required for on-chain reads.');
+  const provider = getPublicDataProvider();
+  const contractState = await provider.queryContractState(cleanAddress as any);
+  if (!contractState) return [];
 
-  const query = `
-    query GetContractState($address: HexEncoded!) {
-      contract(address: $address) {
-        address
-        state
-      }
-    }
-  `;
-
-  const res = await fetch(indexerUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, variables: { address: cleanAddress } }),
-  });
-  if (!res.ok) throw new Error(`Failed to query Midnight Preview Indexer: HTTP ${res.status}`);
-
-  const json: any = await res.json();
-  if (Array.isArray(json?.errors) && json.errors.length > 0) {
-    const message = typeof json.errors[0]?.message === 'string'
-      ? json.errors[0].message.slice(0, 300)
-      : 'Unknown GraphQL error';
-    throw new Error(`Midnight GraphQL error: ${message}`);
-  }
-
-  const contractData = json?.data?.contract;
-  if (!contractData || typeof contractData.state !== 'string' || contractData.state.length === 0) return [];
-
-  const stateHex = contractData.state.startsWith('0x') ? contractData.state.slice(2) : contractData.state;
-  if (!/^[0-9a-fA-F]+$/.test(stateHex) || stateHex.length % 2 !== 0) {
-    throw new Error('Midnight Indexer returned malformed contract state bytes.');
-  }
-
-  const stateBytes = new Uint8Array(stateHex.match(/.{2}/g)!.map((byte: string) => Number.parseInt(byte, 16)));
-  const decodedState = StateValue.decode(stateBytes as any);
-  const contractLedger = ledger(decodedState);
+  const contractLedger = ledger(contractState.data);
 
   const resultsByRequest = new Map<string, any>();
   for (const [, result] of contractLedger.results) {
