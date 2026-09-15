@@ -38,6 +38,8 @@ import { PayrollDashboard } from './payroll/components/PayrollDashboard';
 import { PayrollHomeSection } from './payroll/components/PayrollHomeSection';
 import { SafeHomeSection, SafeSection } from './safe/SafeSection';
 
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>(() => {
     const hash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
@@ -127,6 +129,53 @@ export default function App() {
     return () => { cancelled = true; };
   }, [wallet.isConnected, wallet.mode, credential]);
 
+  const applyLiveLedgerSnapshot = (indexed: VerificationRequest[]) => {
+    const merged = mergePublicLiveEvidence(indexed);
+    setRequests(merged);
+    setSelectedRequestForVerifier((previous) => {
+      if (!previous) return previous;
+      return merged.find((request) => request.id === previous.id) ?? previous;
+    });
+    setSelectedRequestForProof((previous) => {
+      if (!previous) return previous;
+      return merged.find((request) => request.id === previous.id) ?? previous;
+    });
+    return merged;
+  };
+
+  const pollLiveFinalOutcome = async (requestId: string) => {
+    // Midnight indexing can lag the accepted transaction. Poll only long enough
+    // to replace optimistic browser state with the authoritative contract result.
+    for (let attempt = 0; attempt < 8; attempt++) {
+      if (attempt > 0) await sleep(attempt < 4 ? 1000 : 2000);
+      try {
+        const indexed = await compactLedger.syncLiveLedger();
+        const merged = applyLiveLedgerSnapshot(indexed);
+        const outcome = merged.find((request) => request.id === requestId);
+        if (outcome && (outcome.status === 'VERIFIED' || outcome.status === 'REJECTED')) {
+          return;
+        }
+      } catch (error) {
+        console.warn('BLACKOUT ledger finalization refresh failed:', error);
+      }
+    }
+  };
+
+  // Entering Ledger/Verify always refreshes from Midnight. This prevents a
+  // request object captured while PENDING from remaining stale after indexing.
+  useEffect(() => {
+    if (activeTab !== 'verify' || !wallet.isConnected || wallet.mode !== 'LIVE') return;
+    let cancelled = false;
+    void compactLedger.syncLiveLedger()
+      .then((indexed) => {
+        if (!cancelled) applyLiveLedgerSnapshot(indexed);
+      })
+      .catch((error) => {
+        if (!cancelled) console.warn('BLACKOUT ledger refresh failed:', error);
+      });
+    return () => { cancelled = true; };
+  }, [activeTab, wallet.isConnected, wallet.mode]);
+
   const handleConnectWallet = async (mode: ExecutionMode = 'LIVE') => {
     setWallet((prev) => ({ ...prev, isConnecting: true }));
     setWalletError(null);
@@ -139,7 +188,7 @@ export default function App() {
         const state = await connectLiveLaceWallet(wallet.network);
         setWallet(state);
         const indexed = await compactLedger.syncLiveLedger();
-        setRequests(mergePublicLiveEvidence(indexed));
+        applyLiveLedgerSnapshot(indexed);
       } else {
         const state = await connectDemoWallet(wallet.network);
         setWallet(state);
@@ -157,12 +206,17 @@ export default function App() {
     const updated = compactLedger.recordProofResult(proof.requestId, proof, wallet.mode);
     if (wallet.mode === 'LIVE') {
       persistPublicLiveEvidence(updated);
-      setRequests(mergePublicLiveEvidence(compactLedger.getRequests('LIVE')));
+      const merged = applyLiveLedgerSnapshot(compactLedger.getRequests('LIVE'));
+      if (selectedRequestForVerifier?.id === proof.requestId) {
+        setSelectedRequestForVerifier(merged.find((request) => request.id === proof.requestId) ?? updated);
+      }
+      void pollLiveFinalOutcome(proof.requestId);
     } else {
-      setRequests(compactLedger.getRequests('DEMO'));
-    }
-    if (selectedRequestForVerifier?.id === proof.requestId) {
-      setSelectedRequestForVerifier(updated);
+      const demoRequests = compactLedger.getRequests('DEMO');
+      setRequests(demoRequests);
+      if (selectedRequestForVerifier?.id === proof.requestId) {
+        setSelectedRequestForVerifier(updated);
+      }
     }
   };
 
@@ -180,7 +234,7 @@ export default function App() {
     const created = await compactLedger.registerRequest(reqData, wallet.mode);
     if (wallet.mode === 'LIVE') {
       persistPublicLiveEvidence(created);
-      setRequests(mergePublicLiveEvidence(compactLedger.getRequests('LIVE')));
+      applyLiveLedgerSnapshot(compactLedger.getRequests('LIVE'));
     } else {
       setRequests(compactLedger.getRequests('DEMO'));
     }
