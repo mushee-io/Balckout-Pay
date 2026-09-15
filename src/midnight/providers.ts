@@ -9,8 +9,8 @@ import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-conf
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { StateValue } from '@midnight-ntwrk/compact-runtime';
 import { ledger } from '../../contract/build/contract/index.js';
+import { getActiveLaceSession } from './wallet-connector';
 
-// v2 deliberately ignores any address from the pre-hardening contract.
 const CONTRACT_ADDRESS_STORAGE_KEY = 'blackout_midnight_preview_contract_address_v2';
 
 export interface MidnightConfig {
@@ -66,22 +66,18 @@ export function getMidnightConfig(): MidnightConfig {
     (isMeta && import.meta.env.VITE_MIDNIGHT_NETWORK_ID) ||
     (isProc && process.env.MIDNIGHT_NETWORK_ID) ||
     '';
-
   const nodeRpcUrl =
     (isMeta && import.meta.env.VITE_MIDNIGHT_NODE_URL) ||
     (isProc && process.env.MIDNIGHT_NODE_URL) ||
     '';
-
   const indexerUrl =
     (isMeta && import.meta.env.VITE_MIDNIGHT_INDEXER_URL) ||
     (isProc && process.env.MIDNIGHT_INDEXER_URL) ||
     '';
-
   const indexerWsUrl =
     (isMeta && import.meta.env.VITE_MIDNIGHT_INDEXER_WS_URL) ||
     (isProc && process.env.MIDNIGHT_INDEXER_WS_URL) ||
     '';
-
   const proofServerUrl =
     (isMeta && import.meta.env.VITE_MIDNIGHT_PROOF_SERVER_URL) ||
     (isProc && process.env.MIDNIGHT_PROOF_SERVER_URL) ||
@@ -101,6 +97,31 @@ export function getMidnightConfig(): MidnightConfig {
     indexerWsUrl,
     proofServerUrl,
     contractAddress: persistedContractAddress || configuredContractAddress,
+  };
+}
+
+/**
+ * LIVE browser reads must use the exact Preview indexer exposed by the active
+ * wallet session. Static env values are only a fallback for non-wallet tooling.
+ * This keeps writes and reads on the same network/indexer and prevents a valid
+ * proof transaction from being displayed as permanently PENDING.
+ */
+function getLiveIndexerEndpoints(): { indexerUrl: string; indexerWsUrl: string } {
+  const session = getActiveLaceSession();
+  if (session) {
+    if (session.networkId !== 'preview') {
+      throw new Error(`Blackout Pay LIVE is locked to Midnight Preview; connected wallet is on "${session.networkId}".`);
+    }
+    const indexerUrl = session.configuration?.indexerUri?.trim() || '';
+    const indexerWsUrl = session.configuration?.indexerWsUri?.trim() || '';
+    if (indexerUrl) return { indexerUrl, indexerWsUrl };
+    throw new Error('Connected Midnight Preview wallet did not provide an indexer endpoint. Reconnect the wallet and retry.');
+  }
+
+  const config = getMidnightConfig();
+  return {
+    indexerUrl: config.indexerUrl.trim(),
+    indexerWsUrl: config.indexerWsUrl.trim(),
   };
 }
 
@@ -140,11 +161,11 @@ export function getProofProvider(zkArtifactsBaseUrl: string = 'http://localhost:
 }
 
 export function getPublicDataProvider() {
-  const config = getMidnightConfig();
-  if (!config.indexerUrl || !config.indexerWsUrl) {
-    throw new Error('MIDNIGHT_INDEXER_URL and MIDNIGHT_INDEXER_WS_URL are required for LIVE indexer access.');
+  const { indexerUrl, indexerWsUrl } = getLiveIndexerEndpoints();
+  if (!indexerUrl || !indexerWsUrl) {
+    throw new Error('Midnight Preview indexer HTTP and WebSocket endpoints are required for LIVE indexer access.');
   }
-  return indexerPublicDataProvider(config.indexerUrl, config.indexerWsUrl);
+  return indexerPublicDataProvider(indexerUrl, indexerWsUrl);
 }
 
 export interface OnChainVerificationItem {
@@ -158,18 +179,14 @@ export interface OnChainVerificationItem {
 
 /**
  * Read finalized verification results from the hardened v2 contract.
- *
- * `records` contains immutable registrations. `results` contains exactly one
- * append-only result per proved request. Pending registrations are intentionally
- * not returned as verified evidence; the UI may keep its own clearly-pending
- * cache until a result is indexed.
+ * `records` holds immutable registrations and `results` holds final outcomes.
  */
 export async function fetchOnChainContractRecords(contractAddress: string): Promise<OnChainVerificationItem[]> {
   const cleanAddress = normalizeContractAddress(contractAddress);
   if (!cleanAddress) return [];
 
-  const config = getMidnightConfig();
-  if (!config.indexerUrl) throw new Error('MIDNIGHT_INDEXER_URL is required for on-chain reads.');
+  const { indexerUrl } = getLiveIndexerEndpoints();
+  if (!indexerUrl) throw new Error('Midnight Preview indexer URL is required for on-chain reads.');
 
   const query = `
     query GetContractState($address: HexEncoded!) {
@@ -180,16 +197,18 @@ export async function fetchOnChainContractRecords(contractAddress: string): Prom
     }
   `;
 
-  const res = await fetch(config.indexerUrl, {
+  const res = await fetch(indexerUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables: { address: cleanAddress } }),
   });
-  if (!res.ok) throw new Error(`Failed to query Midnight Indexer: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`Failed to query Midnight Preview Indexer: HTTP ${res.status}`);
 
   const json: any = await res.json();
   if (Array.isArray(json?.errors) && json.errors.length > 0) {
-    const message = typeof json.errors[0]?.message === 'string' ? json.errors[0].message.slice(0, 300) : 'Unknown GraphQL error';
+    const message = typeof json.errors[0]?.message === 'string'
+      ? json.errors[0].message.slice(0, 300)
+      : 'Unknown GraphQL error';
     throw new Error(`Midnight GraphQL error: ${message}`);
   }
 
@@ -270,10 +289,16 @@ export async function checkRpcHealth(): Promise<{ ok: boolean; peers?: number; i
 }
 
 export async function checkIndexerHealth(): Promise<{ ok: boolean; blockHeight?: number }> {
-  const config = getMidnightConfig();
-  if (!config.indexerUrl) return { ok: false };
+  let indexerUrl = '';
   try {
-    const res = await fetch(config.indexerUrl, {
+    indexerUrl = getLiveIndexerEndpoints().indexerUrl;
+  } catch {
+    return { ok: false };
+  }
+  if (!indexerUrl) return { ok: false };
+
+  try {
+    const res = await fetch(indexerUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query: '{ block { height hash } }' }),
