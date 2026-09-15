@@ -2,12 +2,6 @@ import React, { useState } from 'react';
 import { 
   ArrowLeft, 
   ArrowRight, 
-  Check, 
-  FileSpreadsheet, 
-  ShieldCheck, 
-  Calendar, 
-  Coins, 
-  Layers,
   AlertCircle
 } from 'lucide-react';
 import { PayrollAsset, PayrollBatch, PayrollRecipient } from '../types/payroll';
@@ -17,25 +11,25 @@ interface CreatePayrollProps {
   onCancel: () => void;
   onCompleteBatch: (batch: PayrollBatch) => void;
   initialBatch?: PayrollBatch | null;
+  executionMode: 'DEMO' | 'LIVE';
 }
 
 export const CreatePayroll: React.FC<CreatePayrollProps> = ({
   onCancel,
   onCompleteBatch,
   initialBatch,
+  executionMode,
 }) => {
   const [step, setStep] = useState<1 | 2>(1);
 
-  // Step 1 Details
   const [name, setName] = useState(initialBatch?.name || 'October Payroll');
   const [period, setPeriod] = useState(initialBatch?.period || '01 OCT — 31 OCT 2026');
   const [paymentDate, setPaymentDate] = useState(initialBatch?.paymentDate || '31 OCT 2026');
   const [paymentAsset, setPaymentAsset] = useState<PayrollAsset>(initialBatch?.paymentAsset || 'USDC');
   const [detailsError, setDetailsError] = useState<string | null>(null);
 
-  // Step 2 Recipients
   const [recipients, setRecipients] = useState<PayrollRecipient[]>(
-    initialBatch?.recipients || []
+    initialBatch?.mode === executionMode ? initialBatch.recipients : []
   );
   const [recipientsError, setRecipientsError] = useState<string | null>(null);
 
@@ -65,6 +59,10 @@ export const CreatePayroll: React.FC<CreatePayrollProps> = ({
       setRecipientsError('At least 1 recipient is required to construct a private payroll batch.');
       return;
     }
+    if (executionMode === 'LIVE' && recipients.length > 4) {
+      setRecipientsError('LIVE Preview authorization currently supports up to 4 private recipients per batch. Split larger payrolls into multiple batches.');
+      return;
+    }
 
     const newBatch: PayrollBatch = {
       id: `batch-${Date.now().toString(36)}`,
@@ -75,7 +73,7 @@ export const CreatePayroll: React.FC<CreatePayrollProps> = ({
       status: 'READY',
       recipients,
       createdAt: Date.now(),
-      mode: 'DEMO',
+      mode: executionMode,
     };
 
     onCompleteBatch(newBatch);
@@ -83,7 +81,6 @@ export const CreatePayroll: React.FC<CreatePayrollProps> = ({
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 text-left font-sans">
-      {/* Header & Step Tracker */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
         <div>
           <button
@@ -94,14 +91,13 @@ export const CreatePayroll: React.FC<CreatePayrollProps> = ({
             <span>BACK TO PAYROLL OVERVIEW</span>
           </button>
           <div className="text-[10px] font-mono tracking-[0.25em] text-[#FF5A5F] uppercase font-bold">
-            [ NEW BATCH PROTOCOL ]
+            [ NEW BATCH PROTOCOL / {executionMode} ]
           </div>
           <h2 className="text-2xl sm:text-3xl font-condensed font-extrabold uppercase text-[#E8E6DF]">
             CREATE PRIVATE PAYROLL
           </h2>
         </div>
 
-        {/* Step Indicator */}
         <div className="flex items-center gap-2 font-mono text-xs">
           <div className={`px-3 py-1.5 border flex items-center gap-1.5 ${
             step === 1 
@@ -123,7 +119,6 @@ export const CreatePayroll: React.FC<CreatePayrollProps> = ({
         </div>
       </div>
 
-      {/* Step 1: Payroll Details */}
       {step === 1 && (
         <form onSubmit={handleStep1Next} className="space-y-6 font-mono text-xs">
           <div className="p-6 bg-[#0E0E0E] border border-white/[0.08] space-y-6">
@@ -141,9 +136,7 @@ export const CreatePayroll: React.FC<CreatePayrollProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
-                <label className="text-[10px] text-[#8A8882] uppercase">
-                  Payroll Name *
-                </label>
+                <label className="text-[10px] text-[#8A8882] uppercase">Payroll Name *</label>
                 <input
                   type="text"
                   value={name}
@@ -154,24 +147,20 @@ export const CreatePayroll: React.FC<CreatePayrollProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] text-[#8A8882] uppercase">
-                  Payment Asset *
-                </label>
+                <label className="text-[10px] text-[#8A8882] uppercase">Payment Asset *</label>
                 <select
                   value={paymentAsset}
                   onChange={(e) => setPaymentAsset(e.target.value as PayrollAsset)}
                   className="w-full bg-[#121212] border border-white/[0.1] px-3.5 py-2.5 text-[#E8E6DF] focus:border-[#FF5A5F] outline-none cursor-pointer"
                 >
-                  <option value="USDC">USDC (USD Coin — Midnight Shielded Pool)</option>
-                  <option value="tNIGHT">tNIGHT (Midnight Network Native Dust Token)</option>
-                  <option value="GBPX">GBPX (Institutional Private Sterling)</option>
+                  <option value="USDC">USDC (private payroll policy asset)</option>
+                  <option value="tNIGHT">tNIGHT (Midnight test asset policy)</option>
+                  <option value="GBPX">GBPX (private sterling payroll policy)</option>
                 </select>
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] text-[#8A8882] uppercase">
-                  Payroll Period *
-                </label>
+                <label className="text-[10px] text-[#8A8882] uppercase">Payroll Period *</label>
                 <input
                   type="text"
                   value={period}
@@ -182,9 +171,7 @@ export const CreatePayroll: React.FC<CreatePayrollProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] text-[#8A8882] uppercase">
-                  Payment Date *
-                </label>
+                <label className="text-[10px] text-[#8A8882] uppercase">Payment Date *</label>
                 <input
                   type="text"
                   value={paymentDate}
@@ -194,6 +181,12 @@ export const CreatePayroll: React.FC<CreatePayrollProps> = ({
                 />
               </div>
             </div>
+
+            {executionMode === 'LIVE' && (
+              <div className="p-3 border border-[#26A17B]/30 bg-[#0A100D] text-[11px] text-[#8A8882] leading-relaxed">
+                LIVE mode creates a real Midnight Preview zero-knowledge authorization. Recipient addresses and compensation values are private witness inputs and are not written to public contract state.
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between pt-2">
@@ -215,7 +208,6 @@ export const CreatePayroll: React.FC<CreatePayrollProps> = ({
         </form>
       )}
 
-      {/* Step 2: Recipients */}
       {step === 2 && (
         <div className="space-y-6">
           {recipientsError && (
@@ -229,6 +221,7 @@ export const CreatePayroll: React.FC<CreatePayrollProps> = ({
             recipients={recipients}
             onChangeRecipients={setRecipients}
             currency={paymentAsset === 'GBPX' ? 'GBP' : 'USD'}
+            executionMode={executionMode}
           />
 
           <div className="flex items-center justify-between pt-4 border-t border-white/[0.08] font-mono text-xs">
