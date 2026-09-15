@@ -40,16 +40,18 @@ export interface PayrollExecutionResult {
   batchId: string;
   batchName: string;
   recipientCount: number;
-  totalDisplay: string; // e.g. "PRIVATE"
+  totalDisplay: string;
   network: string;
   mode: 'DEMO' | 'LIVE';
   status: 'CONFIRMED' | 'FAILED';
   timestamp: number;
   txHash?: string;
+  deploymentTxHash?: string;
   contractAddress?: string;
   blockHeight?: number;
   privacyStatus: 'COMPENSATION PRIVATE';
   unrevealedAttributes: string[];
+  /** Sensitive payroll witness bytes disclosed publicly, not total transaction bytes. */
   dataDisclosedBytes: 0;
   note?: string;
 }
