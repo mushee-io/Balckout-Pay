@@ -40,14 +40,22 @@ export const VerifierView: React.FC<VerifierViewProps> = ({
   const [copied, setCopied] = useState(false);
   const [certificateSeal, setCertificateSeal] = useState<string | null>(null);
   const [reverifyResult, setReverifyResult] = useState<{ checked: boolean; valid: boolean; message: string } | null>(null);
-  const currentReq = request || allRequests[0];
+
+  // Always prefer the newest copy from the live ledger collection. The selected
+  // request object may have been captured while a transaction was still pending.
+  const currentReq = request
+    ? (allRequests.find((item) => item.id === request.id) ?? request)
+    : allRequests[0];
 
   useEffect(() => {
-    if (currentReq?.proofResult && currentReq) {
+    if (currentReq?.proofResult) {
       generateAuditCertificateSeal(currentReq.proofResult, currentReq)
         .then(seal => setCertificateSeal(seal))
         .catch(() => setCertificateSeal(null));
+    } else {
+      setCertificateSeal(null);
     }
+    setReverifyResult(null);
   }, [currentReq]);
 
   const handleCopyHash = (text: string) => {
@@ -66,7 +74,7 @@ export const VerifierView: React.FC<VerifierViewProps> = ({
       certificateType: 'INSTITUTIONAL_DATA_MINIMIZATION_AUDIT',
       issuedAt: new Date().toISOString(),
       cryptographicIntegritySeal: seal,
-      verificationOutcome: currentReq.proofResult.isVerified ? 'QUALIFIED' : 'REJECTED',
+      verificationOutcome: currentReq.status === 'VERIFIED' ? 'QUALIFIED' : currentReq.status === 'REJECTED' ? 'REJECTED' : 'PENDING',
       policy: {
         id: currentReq.policyId,
         title: currentReq.title,
@@ -83,11 +91,12 @@ export const VerifierView: React.FC<VerifierViewProps> = ({
         network: currentReq.proofResult.midnightNetwork,
         contractAddress: currentReq.proofResult.contractAddress,
         circuit: currentReq.proofResult.circuitName,
-        blockHeight: currentReq.proofResult.blockHeight || 1,
+        blockHeight: currentReq.proofResult.blockHeight,
         mode: currentReq.proofResult.mode
       },
       proofArtifact: {
         proofHash: currentReq.proofResult.proofHash,
+        transactionHash: currentReq.proofResult.txHash,
         commitmentHash: currentReq.proofResult.commitmentHash,
         nonce: currentReq.proofResult.nonce,
         timestamp: currentReq.proofResult.timestamp,
@@ -131,7 +140,9 @@ export const VerifierView: React.FC<VerifierViewProps> = ({
   };
 
   const hasProof = !!currentReq?.proofResult;
-  const isVerified = currentReq?.proofResult?.isVerified;
+  const hasFinalOutcome = currentReq?.status === 'VERIFIED' || currentReq?.status === 'REJECTED';
+  const isVerified = currentReq?.status === 'VERIFIED';
+  const outcomeLabel = !hasFinalOutcome ? 'PENDING' : isVerified ? 'QUALIFIED' : 'NOT QUALIFIED';
 
   return (
     <div className="max-w-[960px] mx-auto px-4 sm:px-8 py-10 space-y-8 text-left font-sans select-none">
@@ -183,13 +194,13 @@ export const VerifierView: React.FC<VerifierViewProps> = ({
             VERIFIER AUDIT RECEIPT.
           </h1>
           <p className="text-xs text-[#8A8882] font-mono leading-relaxed">
-            Zero-knowledge cryptographic attestation on Midnight Network. Proves threshold satisfaction without disclosing the applicant's private salary, employer details, or net worth.
+            Zero-knowledge cryptographic attestation on Midnight Network. Records the threshold qualification outcome without disclosing the applicant's private salary, employer details, or net worth.
           </p>
         </div>
 
         {/* Verification Status Banner */}
         <div className={`p-6 border flex flex-col sm:flex-row sm:items-center justify-between gap-4 font-mono ${
-          !hasProof
+          !hasFinalOutcome
             ? 'bg-[#121212] border-white/20 text-[#8A8882]'
             : isVerified
             ? 'bg-[#0A100D] border-[#26A17B] text-[#26A17B]'
@@ -198,31 +209,37 @@ export const VerifierView: React.FC<VerifierViewProps> = ({
           <div>
             <div className="text-[10px] uppercase tracking-widest text-[#8A8882]">ATTESTATION OUTCOME</div>
             <div className="text-2xl sm:text-3xl font-bold uppercase mt-0.5 text-[#E8E6DF]">
-              {!hasProof
-                ? 'PENDING PROOF GENERATION'
+              {!hasFinalOutcome
+                ? 'PENDING MIDNIGHT FINALIZATION'
                 : isVerified
                 ? 'QUALIFIED'
                 : 'REJECTED (NOT QUALIFIED)'}
             </div>
             <div className="text-[10px] text-[#8A8882] mt-1">
-              {!hasProof
-                ? 'Applicant has not yet computed and submitted a ZK-SNARK witness.'
+              {!hasFinalOutcome
+                ? 'No final eligibility result has been returned by the Midnight indexer yet.'
                 : isVerified
-                ? 'Applicant proved all required policy conditions in zero-knowledge. Zero underlying private values were disclosed.'
-                : 'Applicant evaluated conditions; criteria not satisfied. Zero private values or shortfalls were exposed.'}
+                ? 'Midnight finalized a qualifying result. Zero underlying private values were disclosed.'
+                : 'Midnight finalized a non-qualifying result. Zero private values or shortfalls were exposed.'}
             </div>
           </div>
 
           <div className="flex flex-col sm:items-end gap-2">
             <span className={`px-4 py-2 text-xs font-bold uppercase tracking-wider self-start sm:self-auto ${
-              !hasProof
+              !hasFinalOutcome
                 ? 'bg-white/[0.06] text-[#8A8882]'
                 : isVerified
                 ? 'bg-[#26A17B]/20 text-[#26A17B] border border-[#26A17B]'
                 : 'bg-[#FF5A5F]/20 text-[#FF5A5F] border border-[#FF5A5F]'
             }`}>
-              {!hasProof ? 'PENDING' : isVerified ? '✓ QUALIFIED' : '✗ REJECTED'}
+              {!hasFinalOutcome ? 'PENDING' : isVerified ? '✓ QUALIFIED' : '✗ NOT QUALIFIED'}
             </span>
+
+            {hasFinalOutcome && !hasProof && (
+              <span className="px-3 py-1.5 bg-[#141414] border border-white/[0.1] text-[10px] text-[#26A17B] uppercase font-bold">
+                MIDNIGHT INDEXER FINAL
+              </span>
+            )}
 
             {hasProof && (
               <button
@@ -314,9 +331,9 @@ export const VerifierView: React.FC<VerifierViewProps> = ({
                 <span>DATA RECEIVED BY VERIFIER:</span>
               </div>
               <ul className="text-[11px] text-[#8A8882] space-y-1 list-disc pl-4">
-                <li>Boolean eligibility attestation (QUALIFIED)</li>
+                <li>Boolean eligibility attestation ({outcomeLabel})</li>
                 <li>Cryptographic policy hash binding</li>
-                <li>Midnight ZK-SNARK proof hash & block height</li>
+                <li>{hasFinalOutcome ? 'Midnight indexer-finalized contract result' : 'Final Midnight result not yet indexed'}</li>
                 <li>Single-use presentation nonce</li>
               </ul>
             </div>
@@ -337,7 +354,7 @@ export const VerifierView: React.FC<VerifierViewProps> = ({
         </div>
 
         {/* Cryptographic Artifacts */}
-        {hasProof && currentReq.proofResult && (
+        {hasProof && currentReq?.proofResult && (
           <div className="space-y-3 font-mono text-xs">
             <div className="text-xs uppercase tracking-wider text-[#8A8882] border-b border-white/[0.06] pb-2">
               CRYPTOGRAPHIC PROOF ARTIFACTS
@@ -345,9 +362,9 @@ export const VerifierView: React.FC<VerifierViewProps> = ({
 
             <div className="p-4 bg-[#090909] border border-white/[0.06] space-y-3 text-[11px]">
               <div>
-                <div className="text-[#8A8882] text-[10px] uppercase">MIDNIGHT ZK-SNARK PROOF HASH:</div>
+                <div className="text-[#8A8882] text-[10px] uppercase">MIDNIGHT SUBMISSION REFERENCE:</div>
                 <div className="text-[#E8E6DF] break-all pt-0.5">
-                  {currentReq.proofResult.proofHash}
+                  {currentReq.proofResult.proofHash || currentReq.proofResult.txHash || 'INDEXER-CONFIRMED CONTRACT STATE'}
                 </div>
               </div>
 
@@ -382,13 +399,13 @@ export const VerifierView: React.FC<VerifierViewProps> = ({
 
               <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/[0.06]">
                 <span className="text-[#8A8882]">
-                  CIRCUIT: <span className="text-[#E8E6DF]">{currentReq.proofResult.circuitName}</span> (BLOCK #{currentReq.proofResult.blockHeight})
+                  CIRCUIT: <span className="text-[#E8E6DF]">{currentReq.proofResult.circuitName}</span> (BLOCK #{currentReq.proofResult.blockHeight ?? 'INDEXED'})
                 </span>
                 <button
-                  onClick={() => handleCopyHash(currentReq.proofResult?.proofHash || '')}
+                  onClick={() => handleCopyHash(currentReq.proofResult?.proofHash || currentReq.proofResult?.txHash || '')}
                   className="text-[#FF5A5F] hover:underline uppercase text-[10px] font-bold cursor-pointer"
                 >
-                  {copied ? '[ COPIED PROOF ]' : '[ COPY PROOF HASH ]'}
+                  {copied ? '[ COPIED REFERENCE ]' : '[ COPY REFERENCE ]'}
                 </button>
               </div>
             </div>
@@ -460,4 +477,3 @@ export const VerifierView: React.FC<VerifierViewProps> = ({
     </div>
   );
 };
-
