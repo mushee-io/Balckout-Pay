@@ -1,0 +1,110 @@
+// BLACKOUT PAYROLL — privacy-preserving payroll authorization on Midnight Preview
+// Compact 0.31.1 / language 0.23 / runtime 0.16.0 compatibility target.
+//
+// Public state stores only a batch identifier, a one-way payroll commitment,
+// authorization timestamp and replay-prevention nullifier. Recipient addresses
+// and compensation values are supplied only through the private witness.
+
+pragma language_version 0.23;
+import CompactStandardLibrary;
+
+export struct PrivatePayrollBatch {
+  asset_commitment: Bytes<32>;
+  recipient_1: Bytes<32>;
+  recipient_2: Bytes<32>;
+  recipient_3: Bytes<32>;
+  recipient_4: Bytes<32>;
+  amount_1: Uint<64>;
+  amount_2: Uint<64>;
+  amount_3: Uint<64>;
+  amount_4: Uint<64>;
+  nonce: Bytes<32>;
+}
+
+export struct PayrollRecord {
+  commitment: Bytes<32>;
+  authorized_at: Uint<64>;
+}
+
+export ledger authorized_batches: Map<Bytes<32>, PayrollRecord>;
+export ledger batch_nullifiers: Set<Bytes<32>>;
+export ledger authorization_count: Uint<64>;
+
+witness local_private_payroll(): PrivatePayrollBatch;
+
+circuit payroll_commitment(
+  batch_id: Bytes<32>,
+  batch: PrivatePayrollBatch
+): Bytes<32> {
+  return persistentHash<[
+    Bytes<32>, Bytes<32>, Bytes<32>, Bytes<32>, Bytes<32>, Bytes<32>,
+    Bytes<32>, Uint<64>, Uint<64>, Uint<64>, Uint<64>, Bytes<32>
+  ]>([
+    pad(32, "blackout:payroll:batch:v1"),
+    batch_id,
+    batch.asset_commitment,
+    batch.recipient_1,
+    batch.recipient_2,
+    batch.recipient_3,
+    batch.recipient_4,
+    batch.amount_1,
+    batch.amount_2,
+    batch.amount_3,
+    batch.amount_4,
+    batch.nonce
+  ]);
+}
+
+circuit payroll_nullifier(batch_id: Bytes<32>, nonce: Bytes<32>): Bytes<32> {
+  return disclose(persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "blackout:payroll:nullifier:v1"), batch_id, nonce
+  ]));
+}
+
+constructor() {
+  authorization_count = 0;
+}
+
+export circuit authorize_payroll(
+  batch_id: Bytes<32>,
+  authorized_at: Uint<64>
+): Bytes<32> {
+  const batch = local_private_payroll();
+  const empty = pad(32, "");
+
+  assert(batch_id != empty, "BLACKOUT_PAYROLL_BATCH_ID_REQUIRED");
+  assert(authorized_at > 0, "BLACKOUT_PAYROLL_TIMESTAMP_REQUIRED");
+  assert(batch.asset_commitment != empty, "BLACKOUT_PAYROLL_ASSET_REQUIRED");
+
+  // Slot 1 is mandatory. Slots 2–4 are optional but must be internally
+  // consistent: a zero amount means the private recipient slot is also empty.
+  assert(batch.recipient_1 != empty, "BLACKOUT_PAYROLL_RECIPIENT_REQUIRED");
+  assert(batch.amount_1 > 0, "BLACKOUT_PAYROLL_AMOUNT_REQUIRED");
+  assert((batch.amount_2 == 0) == (batch.recipient_2 == empty), "BLACKOUT_PAYROLL_SLOT_2_MISMATCH");
+  assert((batch.amount_3 == 0) == (batch.recipient_3 == empty), "BLACKOUT_PAYROLL_SLOT_3_MISMATCH");
+  assert((batch.amount_4 == 0) == (batch.recipient_4 == empty), "BLACKOUT_PAYROLL_SLOT_4_MISMATCH");
+
+  // Bound each private amount to keep arithmetic and product policy safely
+  // inside Uint<64> while still supporting institutional payroll sizes.
+  assert(batch.amount_1 <= 1000000000000, "BLACKOUT_PAYROLL_AMOUNT_1_LIMIT");
+  assert(batch.amount_2 <= 1000000000000, "BLACKOUT_PAYROLL_AMOUNT_2_LIMIT");
+  assert(batch.amount_3 <= 1000000000000, "BLACKOUT_PAYROLL_AMOUNT_3_LIMIT");
+  assert(batch.amount_4 <= 1000000000000, "BLACKOUT_PAYROLL_AMOUNT_4_LIMIT");
+
+  assert(!authorized_batches.member(disclose(batch_id)), "BLACKOUT_PAYROLL_BATCH_ALREADY_AUTHORIZED");
+
+  const nullifier = payroll_nullifier(batch_id, batch.nonce);
+  assert(!batch_nullifiers.member(nullifier), "BLACKOUT_PAYROLL_NONCE_REPLAY");
+
+  const commitment = payroll_commitment(batch_id, batch);
+  batch_nullifiers.insert(nullifier);
+  authorized_batches.insert(disclose(batch_id), PayrollRecord {
+    commitment: disclose(commitment),
+    authorized_at: disclose(authorized_at)
+  });
+
+  assert(authorization_count != 18446744073709551615, "BLACKOUT_PAYROLL_AUTHORIZATION_COUNT_OVERFLOW");
+  authorization_count = (authorization_count + 1) as Uint<64>;
+
+  return disclose(commitment);
+}
