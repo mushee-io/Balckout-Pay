@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertTriangle, ArrowLeft, ArrowRight, Wallet } from 'lucide-react';
 import { PayrollBatch, PayrollExecutionResult, PayrollExecutionStage } from '../types/payroll';
 import { authorizePayrollOnPreview } from '../midnight/live-payroll';
@@ -26,6 +26,10 @@ const stageIndex = (stage: PayrollExecutionStage): number => {
   const index = STAGES.findIndex((item) => item.stage === stage);
   return index < 0 ? 0 : index;
 };
+
+function isWalletProvingDisconnect(message: string): boolean {
+  return /wallet ui disconnected|\bdisconnected\b|(?:prove|proving).*returned an error/i.test(message);
+}
 
 export const PayrollExecution: React.FC<PayrollExecutionProps> = ({
   batch,
@@ -87,12 +91,21 @@ export const PayrollExecution: React.FC<PayrollExecutionProps> = ({
     setLiveStarted(true);
     setLiveError(null);
     setCurrentStageIndex(0);
+    setStageMessage(STAGES[0].desc);
+
     try {
       const result = await authorizePayrollOnPreview(batch, {
         onStage: (stage, message) => {
           setStageMessage(message);
           if (stage === 'FAILED') {
             setLiveError(message);
+            if (isWalletProvingDisconnect(message)) {
+              // A delegated prover can lose its wallet popup/session after a
+              // one-time deployment approval. That failure happened before a
+              // payroll call was submitted, so present proof generation as the
+              // retry point instead of falsely marking later stages complete.
+              setCurrentStageIndex(stageIndex('GENERATING_PROOF'));
+            }
             return;
           }
           setCurrentStageIndex(stageIndex(stage));
@@ -100,7 +113,12 @@ export const PayrollExecution: React.FC<PayrollExecutionProps> = ({
       });
       onComplete(result);
     } catch (error) {
-      setLiveError(error instanceof Error ? error.message : 'BLACKOUT_PAYROLL_PREVIEW_AUTHORIZATION_FAILED');
+      const message = error instanceof Error ? error.message : 'BLACKOUT_PAYROLL_PREVIEW_AUTHORIZATION_FAILED';
+      setLiveError(message);
+      if (isWalletProvingDisconnect(message)) {
+        setCurrentStageIndex(stageIndex('GENERATING_PROOF'));
+        setStageMessage('Wallet proving UI disconnected before the payroll authorization was submitted. Re-open the wallet approval UI and retry; an existing payroll contract deployment will be reused.');
+      }
     } finally {
       setLiveBusy(false);
     }
@@ -108,6 +126,7 @@ export const PayrollExecution: React.FC<PayrollExecutionProps> = ({
 
   const currentStageObj = STAGES[currentStageIndex] ?? STAGES[0];
   const environmentLabel = executionMode === 'LIVE' ? 'MIDNIGHT PREVIEW / LIVE ON-CHAIN' : 'DEMO SANDBOX';
+  const walletProvingDisconnected = Boolean(liveError && isWalletProvingDisconnect(liveError));
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 text-left font-sans">
@@ -132,7 +151,14 @@ export const PayrollExecution: React.FC<PayrollExecutionProps> = ({
       {liveError && (
         <div className="p-4 bg-[#1A0D0D] border border-[#FF5A5F]/50 text-[#FF5A5F] font-mono text-xs flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>{liveError}</span>
+          <div className="space-y-1">
+            <div>{liveError}</div>
+            {walletProvingDisconnected && (
+              <div className="text-[#E8E6DF]">
+                The payroll call was not finalized. Keep the Midnight wallet approval UI open, then retry below. If the one-time contract deployment already succeeded, BLACKOUT reuses it and does not create a duplicate contract.
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -141,7 +167,7 @@ export const PayrollExecution: React.FC<PayrollExecutionProps> = ({
           <div className="space-y-1">
             <div className="text-[10px] font-mono text-[#8A8882] uppercase">CURRENT OPERATION:</div>
             <div className="text-xl font-condensed font-extrabold uppercase text-[#E8E6DF] flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#26A17B] animate-pulse" />
+              <span className={`w-2.5 h-2.5 rounded-full ${liveError ? 'bg-[#FF5A5F]' : 'bg-[#26A17B] animate-pulse'}`} />
               <span>{currentStageObj.label}</span>
             </div>
             <div className="text-xs font-mono text-[#8A8882]">{executionMode === 'LIVE' ? stageMessage : currentStageObj.desc}</div>
@@ -155,10 +181,10 @@ export const PayrollExecution: React.FC<PayrollExecutionProps> = ({
             return (
               <div key={item.stage} className={`p-3 border transition-all flex items-center justify-between gap-4 ${isCurrent ? 'bg-[#181818] border-[#26A17B] text-[#E8E6DF]' : isDone ? 'bg-[#080808] border-white/[0.06] text-[#8A8882]' : 'bg-[#050505] border-transparent text-[#444]'}`}>
                 <div className="flex items-center gap-3">
-                  <span className={`w-5 h-5 flex items-center justify-center text-[10px] font-bold border ${isDone ? 'border-[#26A17B] bg-[#26A17B]/20 text-[#26A17B]' : isCurrent ? 'border-[#26A17B] text-[#26A17B] animate-pulse' : 'border-white/[0.1] text-[#444]'}`}>{isDone ? '✓' : index + 1}</span>
+                  <span className={`w-5 h-5 flex items-center justify-center text-[10px] font-bold border ${isDone ? 'border-[#26A17B] bg-[#26A17B]/20 text-[#26A17B]' : isCurrent ? 'border-[#26A17B] text-[#26A17B]' : 'border-white/[0.1] text-[#444]'}`}>{isDone ? '✓' : index + 1}</span>
                   <div className="font-bold">{item.label}</div>
                 </div>
-                <div className="text-[10px]">{isDone ? <span className="text-[#26A17B]">COMPLETE</span> : isCurrent ? <span className="text-[#26A17B] font-bold">{liveBusy || executionMode === 'DEMO' ? 'ACTIVE' : 'READY'}</span> : <span>PENDING</span>}</div>
+                <div className="text-[10px]">{isDone ? <span className="text-[#26A17B]">COMPLETE</span> : isCurrent ? <span className={liveError ? 'text-[#FF5A5F] font-bold' : 'text-[#26A17B] font-bold'}>{liveError ? 'RETRY REQUIRED' : liveBusy || executionMode === 'DEMO' ? 'ACTIVE' : 'READY'}</span> : <span>PENDING</span>}</div>
               </div>
             );
           })}
@@ -170,6 +196,21 @@ export const PayrollExecution: React.FC<PayrollExecutionProps> = ({
             <p className="text-[#8A8882] leading-relaxed">The wallet will prove the private batch and authorize the public commitment. Recipient addresses and compensation amounts are not sent as plaintext circuit arguments.</p>
             <button onClick={handleLiveAuthorization} disabled={liveBusy} className="px-6 py-3 bg-[#E8E6DF] text-black hover:bg-white disabled:bg-[#333] disabled:text-[#777] font-bold uppercase tracking-wider transition-colors flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed">
               <span>{liveBusy ? 'AUTHORIZING…' : '[ AUTHORIZE ON MIDNIGHT PREVIEW ]'}</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {executionMode === 'LIVE' && liveStarted && liveError && !liveBusy && (
+          <div className="p-6 bg-[#161616] border-t border-[#FF5A5F]/35 space-y-4 font-mono text-xs">
+            <div className="flex items-center gap-2 text-[#FFB800] font-bold uppercase"><Wallet className="w-4 h-4" /><span>{walletProvingDisconnected ? 'WALLET PROVER RECONNECT REQUIRED' : 'AUTHORIZATION RETRY AVAILABLE'}</span></div>
+            <p className="text-[#8A8882] leading-relaxed">
+              {walletProvingDisconnected
+                ? 'Open/unlock the Midnight wallet, keep its approval window available, then retry. BLACKOUT will request a fresh delegated proving session and reuse any already-deployed payroll contract.'
+                : 'The previous attempt did not complete. Retry only after resolving the wallet or network error shown above.'}
+            </p>
+            <button onClick={handleLiveAuthorization} disabled={liveBusy} className="px-6 py-3 bg-[#E8E6DF] text-black hover:bg-white disabled:bg-[#333] disabled:text-[#777] font-bold uppercase tracking-wider transition-colors flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed">
+              <span>[ RETRY MIDNIGHT AUTHORIZATION ]</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
