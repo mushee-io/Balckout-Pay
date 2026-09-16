@@ -36,11 +36,26 @@ function normalizeConfiguration(configuration: SafeWalletSession['configuration'
   };
 }
 
+async function sharedPreviewSessionIsLive(shared: ReturnType<typeof getActiveLaceSession>): Promise<boolean> {
+  if (!shared || shared.networkId !== 'preview') return false;
+  try {
+    if (typeof shared.wallet?.getConnectionStatus !== 'function') return false;
+    const status = await shared.wallet.getConnectionStatus();
+    return status?.status === 'connected' && status.networkId === 'preview';
+  } catch {
+    return false;
+  }
+}
+
 export async function connectBlackoutSafeWallet(): Promise<SafeWalletSession> {
   let shared = getActiveLaceSession();
-  let walletName = 'Midnight wallet';
+  let walletName = activeSession?.walletName || 'Midnight wallet';
 
-  if (!shared || shared.networkId !== 'preview') {
+  // A wallet extension can keep an injected API object around after its UI/proving
+  // session has disconnected. Treat that object as stale instead of reusing it.
+  // This makes SAFE's "REFRESH WALLET" control a real recovery action.
+  if (!(await sharedPreviewSessionIsLive(shared))) {
+    clearActiveSafeWalletSession();
     const view = await connectLiveLaceWallet('Midnight Preview');
     walletName = view.walletName;
     shared = getActiveLaceSession();
@@ -78,7 +93,9 @@ export async function requirePreviewDust(session: SafeWalletSession): Promise<bi
 export async function revalidateBlackoutSafeWalletSession(session: SafeWalletSession): Promise<void> {
   if (session.networkId !== 'preview') throw new Error('BLACKOUT_SAFE_PREVIEW_ONLY');
   const status = await session.wallet.getConnectionStatus();
-  if (status?.status !== 'connected' || status.networkId !== 'preview') throw new Error('BLACKOUT_SAFE_WALLET_SESSION_CHANGED');
+  if (status?.status !== 'connected' || status.networkId !== 'preview') {
+    throw new Error('BLACKOUT_SAFE_WALLET_RECONNECT_REQUIRED');
+  }
   const latestConfiguration = normalizeConfiguration(await session.wallet.getConfiguration());
   if (
     latestConfiguration.indexerUri !== session.configuration.indexerUri ||
