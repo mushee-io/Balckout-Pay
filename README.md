@@ -6,6 +6,22 @@ BlackoutPay is privacy-first eligibility infrastructure built on the **Midnight 
 
 Instead of sending raw payslips, bank statements and private financial documents to every verifier, the protocol is designed to prove a narrowly defined eligibility condition while keeping the underlying witness private.
 
+## BLACKOUT today
+
+BLACKOUT has expanded from private eligibility verification into a privacy-first financial infrastructure suite on Midnight Preview.
+
+Current modules:
+
+- VERIFY — prove private eligibility conditions without revealing the underlying value
+- REQUEST — create immutable proof requirements
+- LEDGER — indexer-backed verification and audit evidence
+- BLACKOUT PAYROLL — privacy-preserving payroll authorization
+- BLACKOUT SAFE — shielded organizational treasury and zero-knowledge multisig
+
+The system has been exercised through real Midnight Preview transactions, including verification, payroll authorization, SAFE deployment and shielded treasury funding.
+
+Live demo: https://balckout-pay.vercel.app/
+
 The core product flow is:
 
 $$\mathbf{REQUEST} \longrightarrow \mathbf{PROVE} \longrightarrow \mathbf{VERIFY} \longrightarrow \mathbf{ACT}$$
@@ -241,6 +257,12 @@ The Solidity receipt registry is implemented and tested but is **not represented
 - [`DEMO.md`](./DEMO.md) — demonstration flow.
 
 ---
+
+## Hackathon submission
+
+Live Demo:
+https://balckout-pay.vercel.app/
+Built for the Midnight Network Buildathon.
 
 ## License
 
