@@ -23,9 +23,16 @@ export const RecipientEditor: React.FC<RecipientEditorProps> = ({
   const [inputError, setInputError] = useState<string | null>(null);
   const [maskAmounts, setMaskAmounts] = useState(false);
 
+  const liveAtCapacity = executionMode === 'LIVE' && recipients.length >= 4;
+
   const handleAddRecipient = (e: React.FormEvent) => {
     e.preventDefault();
     setInputError(null);
+
+    if (liveAtCapacity) {
+      setInputError('LIVE Preview batches support up to 4 private recipients. Create another batch for additional recipients.');
+      return;
+    }
 
     const cleanId = employeeId.trim().toUpperCase();
     const cleanLabel = label.trim();
@@ -37,6 +44,11 @@ export const RecipientEditor: React.FC<RecipientEditorProps> = ({
       return;
     }
 
+    if (recipients.some((recipient) => recipient.employeeId.trim().toUpperCase() === cleanId)) {
+      setInputError(`Employee ID ${cleanId} is already present in this payroll batch.`);
+      return;
+    }
+
     let normalizedAddress = cleanAddress;
     if (executionMode === 'LIVE') {
       const validation = validateMidnightPreviewAddress(cleanAddress);
@@ -45,8 +57,13 @@ export const RecipientEditor: React.FC<RecipientEditorProps> = ({
         return;
       }
       normalizedAddress = validation.normalized;
-      if (recipients.length >= 4) {
-        setInputError('LIVE Preview batches support up to 4 private recipients. Create another batch for additional recipients.');
+
+      const duplicateAddress = recipients.some((recipient) => {
+        const existing = validateMidnightPreviewAddress(recipient.walletAddress);
+        return existing.ok && existing.normalized === normalizedAddress;
+      });
+      if (duplicateAddress) {
+        setInputError('That Midnight Preview recipient address is already present in this batch.');
         return;
       }
     } else if (!cleanAddress || !cleanAddress.startsWith('midnight1')) {
@@ -75,7 +92,7 @@ export const RecipientEditor: React.FC<RecipientEditorProps> = ({
       paymentAmount: amountNum,
       currency,
       status: 'READY',
-      eligibilityStatus: 'ELIGIBLE',
+      eligibilityStatus: executionMode === 'LIVE' ? 'PENDING_VERIFICATION' : 'ELIGIBLE',
     };
 
     onChangeRecipients([...recipients, newRecipient]);
@@ -86,7 +103,13 @@ export const RecipientEditor: React.FC<RecipientEditorProps> = ({
   };
 
   const handleRemoveRecipient = (id: string) => {
+    setInputError(null);
     onChangeRecipients(recipients.filter((recipient) => recipient.id !== id));
+  };
+
+  const handleClearRoster = () => {
+    setInputError(null);
+    onChangeRecipients([]);
   };
 
   const handleLoadSampleRecipients = () => {
@@ -123,11 +146,13 @@ export const RecipientEditor: React.FC<RecipientEditorProps> = ({
           <div className="text-[10px] font-mono tracking-wider text-[#8A8882] uppercase">PAYROLL ROSTER</div>
           <div className="text-lg font-condensed font-extrabold uppercase text-[#E8E6DF] flex items-center gap-2">
             <span>{recipients.length} RECIPIENTS CONFIGURED</span>
-            <span className="text-xs font-mono text-[#26A17B] font-normal">[READY]</span>
+            <span className={`text-xs font-mono font-normal ${liveAtCapacity ? 'text-[#FFB800]' : 'text-[#26A17B]'}`}>
+              [{liveAtCapacity ? 'LIVE LIMIT REACHED' : 'READY'}]
+            </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={() => setMaskAmounts(!maskAmounts)}
@@ -136,6 +161,16 @@ export const RecipientEditor: React.FC<RecipientEditorProps> = ({
             {maskAmounts ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
             <span>{maskAmounts ? 'REVEAL LOCALLY' : 'MASK AMOUNTS'}</span>
           </button>
+
+          {recipients.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClearRoster}
+              className="px-3 py-1.5 bg-[#121212] border border-white/[0.1] text-[#8A8882] hover:text-[#FF5A5F] hover:border-[#FF5A5F]/50 font-mono text-xs uppercase transition-colors cursor-pointer"
+            >
+              CLEAR ROSTER
+            </button>
+          )}
 
           {executionMode === 'DEMO' && recipients.length === 0 && (
             <button
@@ -148,6 +183,12 @@ export const RecipientEditor: React.FC<RecipientEditorProps> = ({
           )}
         </div>
       </div>
+
+      {executionMode === 'LIVE' && liveAtCapacity && (
+        <div className="p-3 bg-[#1A1408] border border-[#FFB800]/40 text-[#FFB800] font-mono text-[11px] leading-relaxed">
+          LIVE Preview circuit capacity reached: 4 recipients. Review this batch or create another batch for additional recipients.
+        </div>
+      )}
 
       <form onSubmit={handleAddRecipient} className="p-4 bg-[#0A0A0A] border border-white/[0.08] space-y-4 font-mono text-xs">
         <div className="text-[10px] uppercase font-bold text-[#E8E6DF] flex items-center gap-2">
@@ -165,21 +206,21 @@ export const RecipientEditor: React.FC<RecipientEditorProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
           <div className="sm:col-span-3 space-y-1">
             <label className="text-[10px] text-[#8A8882] uppercase">Employee ID *</label>
-            <input type="text" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} placeholder="EMP-015" className="w-full bg-[#121212] border border-white/[0.1] px-3 py-2 text-[#E8E6DF] focus:border-[#FF5A5F] outline-none" />
+            <input type="text" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} placeholder="EMP-015" disabled={liveAtCapacity} className="w-full bg-[#121212] border border-white/[0.1] px-3 py-2 text-[#E8E6DF] focus:border-[#FF5A5F] outline-none disabled:opacity-40" />
           </div>
 
           <div className="sm:col-span-4 space-y-1">
             <label className="text-[10px] text-[#8A8882] uppercase">Role / Label</label>
-            <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Research Scientist" className="w-full bg-[#121212] border border-white/[0.1] px-3 py-2 text-[#E8E6DF] focus:border-[#FF5A5F] outline-none" />
+            <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Research Scientist" disabled={liveAtCapacity} className="w-full bg-[#121212] border border-white/[0.1] px-3 py-2 text-[#E8E6DF] focus:border-[#FF5A5F] outline-none disabled:opacity-40" />
           </div>
 
           <div className="sm:col-span-3 space-y-1">
             <label className="text-[10px] text-[#8A8882] uppercase">Amount ({currency}) *</label>
-            <input type="number" step="1" min="1" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder="4200" className="w-full bg-[#121212] border border-white/[0.1] px-3 py-2 text-[#E8E6DF] focus:border-[#FF5A5F] outline-none font-bold" />
+            <input type="number" step="1" min="1" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder="4200" disabled={liveAtCapacity} className="w-full bg-[#121212] border border-white/[0.1] px-3 py-2 text-[#E8E6DF] focus:border-[#FF5A5F] outline-none font-bold disabled:opacity-40" />
           </div>
 
           <div className="sm:col-span-2 flex items-end">
-            <button type="submit" className="w-full py-2 bg-[#E8E6DF] text-black hover:bg-white font-bold uppercase transition-all cursor-pointer">+ ADD</button>
+            <button type="submit" disabled={liveAtCapacity} className="w-full py-2 bg-[#E8E6DF] text-black hover:bg-white font-bold uppercase transition-all cursor-pointer disabled:bg-[#222] disabled:text-[#666] disabled:cursor-not-allowed">+ ADD</button>
           </div>
 
           <div className="sm:col-span-12 space-y-1">
@@ -191,7 +232,8 @@ export const RecipientEditor: React.FC<RecipientEditorProps> = ({
               value={walletAddress}
               onChange={(e) => setWalletAddress(e.target.value)}
               placeholder={executionMode === 'LIVE' ? 'mn_addr_preview1… or mn_shield-addr_preview1…' : 'midnight1demo…'}
-              className="w-full bg-[#121212] border border-white/[0.1] px-3 py-2 text-[#E8E6DF] focus:border-[#FF5A5F] outline-none text-[11px]"
+              disabled={liveAtCapacity}
+              className="w-full bg-[#121212] border border-white/[0.1] px-3 py-2 text-[#E8E6DF] focus:border-[#FF5A5F] outline-none text-[11px] disabled:opacity-40"
             />
             {executionMode === 'LIVE' && (
               <div className="text-[9px] text-[#8A8882] pt-1">Mainnet, Preprod and malformed addresses are rejected. Copy the Preview address directly from the recipient wallet.</div>
@@ -219,7 +261,7 @@ export const RecipientEditor: React.FC<RecipientEditorProps> = ({
                 <td className="py-3 px-4"><div className="font-bold text-[#E8E6DF]">{recipient.employeeId}</div><div className="text-[10px] text-[#8A8882]">{recipient.label}</div></td>
                 <td className="py-3 px-4 text-[11px] text-[#8A8882]"><span className="font-mono">{recipient.walletAddress.slice(0, 18)}...{recipient.walletAddress.slice(-8)}</span></td>
                 <td className="py-3 px-4 text-right font-bold">{maskAmounts ? <span className="text-[#8A8882] tracking-wider">••••••</span> : <span className="text-[#26A17B]">{currency} {recipient.paymentAmount.toLocaleString()}</span>}</td>
-                <td className="py-3 px-4 text-center"><span className="inline-flex items-center gap-1 text-[10px] text-[#26A17B] bg-[#26A17B]/10 px-2 py-0.5 border border-[#26A17B]/30"><Check className="w-2.5 h-2.5" /><span>{recipient.eligibilityStatus || 'ELIGIBLE'}</span></span></td>
+                <td className="py-3 px-4 text-center"><span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 border ${recipient.eligibilityStatus === 'PENDING_VERIFICATION' ? 'text-[#FFB800] bg-[#FFB800]/10 border-[#FFB800]/30' : 'text-[#26A17B] bg-[#26A17B]/10 border-[#26A17B]/30'}`}><Check className="w-2.5 h-2.5" /><span>{recipient.eligibilityStatus || 'ELIGIBLE'}</span></span></td>
                 <td className="py-3 px-4 text-right"><button type="button" onClick={() => handleRemoveRecipient(recipient.id)} className="text-[#8A8882] hover:text-[#FF5A5F] p-1 transition-colors cursor-pointer" title="Remove recipient"><Trash2 className="w-3.5 h-3.5" /></button></td>
               </tr>
             ))}
