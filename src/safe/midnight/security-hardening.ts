@@ -81,9 +81,28 @@ export function resolvePinnedAssetBaseUrl(assetPath: string, origin?: string): s
   return new URL(`${assetPath}/`, parsedOrigin.origin).toString().replace(/\/$/, '');
 }
 
+function friendlyMidnightUiError(message: string): string | null {
+  const normalized = message.toLowerCase();
+  if (normalized.includes('wallet ui disconnected') || normalized.includes('blackout_safe_wallet_reconnect_required')) {
+    return 'MIDNIGHT WALLET DISCONNECTED BEFORE FINALIZATION — USE REFRESH WALLET, RECONNECT TO PREVIEW, THEN RETRY. NO SAFE SUCCESS WAS RECORDED.';
+  }
+  if (normalized.includes('user rejected') || normalized.includes('rejected by user') || normalized.includes('user denied')) {
+    return 'MIDNIGHT WALLET APPROVAL WAS CANCELLED — NO SAFE SUCCESS WAS RECORDED. RETRY WHEN READY.';
+  }
+  if (normalized.includes('wallet network changed') || normalized.includes('network_configuration_changed')) {
+    return 'MIDNIGHT WALLET NETWORK CHANGED — SWITCH BACK TO PREVIEW, REFRESH WALLET, THEN RETRY.';
+  }
+  if (normalized.includes('wallet account changed')) {
+    return 'MIDNIGHT WALLET ACCOUNT CHANGED — REFRESH WALLET BEFORE CONTINUING WITH THIS SAFE.';
+  }
+  return null;
+}
+
 export function sanitizeMidnightErrorMessage(value: string, fallback: string): string {
   const trimmed = value.trim();
   if (!trimmed) return fallback;
+  const friendly = friendlyMidnightUiError(trimmed);
+  if (friendly) return friendly;
   const redacted = trimmed
     .replace(URL_CREDENTIALS, '$1[REDACTED]@')
     .replace(SERIALIZED_SECRETISH_HEX, '[REDACTED_HEX_PAYLOAD]');
