@@ -82,7 +82,7 @@ jobs:
               > /dev/null
           done
 
-          # Interactive flows also require proving and ZKIR material in-browser.
+          # Interactive Safe flows also require proving and ZKIR material in-browser.
           for circuit in \
             propose_private \
             approve_private \
@@ -95,6 +95,17 @@ jobs:
               > /dev/null
             curl --fail --silent --show-error \
               "http://127.0.0.1:4173/zk-artifacts/blackout-safe/zkir/${circuit}.bzkir" \
+              > /dev/null
+          done
+
+          # BLACKOUT PAYROLL LIVE must ship all material needed for both the
+          # one-time Preview deployment and wallet-delegated batch authorization.
+          for artifact in \
+            keys/authorize_payroll.verifier \
+            keys/authorize_payroll.prover \
+            zkir/authorize_payroll.bzkir; do
+            curl --fail --silent --show-error \
+              "http://127.0.0.1:4173/zk-artifacts/blackout-payroll/${artifact}" \
               > /dev/null
           done
 
