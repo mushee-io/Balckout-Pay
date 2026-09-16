@@ -248,12 +248,14 @@ function transactionId(publicData: any): string {
   return txId;
 }
 
-async function ensurePayrollContract(session: PayrollLiveSession, callbacks?: PayrollLiveCallbacks) {
+async function ensurePayrollContract(
+  providers: Awaited<ReturnType<typeof providersFor>>,
+  callbacks?: PayrollLiveCallbacks,
+) {
   const existing = loadContractAddress();
   if (existing) return { contractAddress: existing, deploymentTxId: undefined as string | undefined };
 
   callbacks?.onStage?.('AWAITING_WALLET_APPROVAL', 'Approve the one-time BLACKOUT PAYROLL contract deployment in your Midnight Preview wallet.');
-  const providers = await providersFor(session);
   const compiledContract = makeBlackoutPayrollCompiledContract(unavailableWitnesses(), assetBaseUrl());
   const deployed = await deployContract(providers as any, {
     compiledContract,
@@ -333,15 +335,17 @@ export async function authorizePayrollOnPreview(
     callbacks?.onStage?.('PREPARING_PRIVATE_STATE', 'Hashing recipient addresses and keeping compensation values inside the private witness.');
     const { witnesses, batchId } = await buildWitnesses(batch);
 
-    const deployment = await ensurePayrollContract(session, callbacks);
-    callbacks?.onStage?.('GENERATING_PROOF', 'Requesting wallet-delegated proof generation for the private payroll authorization circuit.');
-
+    // The DApp Connector delegated proving API is designed for a proving
+    // provider to be obtained once and reused. Reusing one provider bundle for
+    // both an optional first-time deployment and the payroll call prevents a
+    // second transient wallet proving UI from being created mid-flow.
     const providers = await providersFor(session);
+    const deployment = await ensurePayrollContract(providers, callbacks);
+
+    callbacks?.onStage?.('GENERATING_PROOF', 'Generating the payroll proof through the active Midnight wallet proving session. Keep the wallet approval UI open until authorization completes.');
+
     const compiledContract = makeBlackoutPayrollCompiledContract(witnesses, assetBaseUrl());
     const authorizedAt = BigInt(Math.floor(Date.now() / 1000));
-
-    callbacks?.onStage?.('AWAITING_WALLET_APPROVAL', 'Approve the payroll authorization transaction in your Midnight Preview wallet.');
-    callbacks?.onStage?.('SUBMITTING_TO_MIDNIGHT', 'Submitting the real zero-knowledge payroll authorization transaction to Midnight Preview.');
 
     const result = await submitCallTx(providers as any, {
       compiledContract,
@@ -351,6 +355,7 @@ export async function authorizePayrollOnPreview(
       privateStateId: BLACKOUT_PAYROLL_PRIVATE_STATE_ID,
     } as any);
 
+    callbacks?.onStage?.('SUBMITTING_TO_MIDNIGHT', 'Wallet proving, balancing and authorization completed; validating the submitted Midnight Preview transaction reference.');
     const txHash = transactionId(result.public);
     const blockHeight = safeBlockHeight(result.public.blockHeight);
     callbacks?.onStage?.('CONFIRMING', `Midnight Preview included the authorization at block ${blockHeight}.`);
@@ -380,7 +385,11 @@ export async function authorizePayrollOnPreview(
       note: 'Real Midnight Preview ZK authorization. The public chain receives a batch identifier, one-way commitment, replay nullifier and timestamp; recipient addresses and compensation values remain private. This authorization receipt does not itself represent asset settlement to recipients.',
     };
   } catch (error) {
-    callbacks?.onStage?.('FAILED', safeError(error, 'BLACKOUT_PAYROLL_PREVIEW_AUTHORIZATION_FAILED'));
-    throw new Error(safeError(error, 'BLACKOUT_PAYROLL_PREVIEW_AUTHORIZATION_FAILED'));
+    const rawMessage = safeError(error, 'BLACKOUT_PAYROLL_PREVIEW_AUTHORIZATION_FAILED');
+    const message = /wallet ui disconnected|(?:prove|proving).*disconnected/i.test(rawMessage)
+      ? 'BLACKOUT_PAYROLL_WALLET_PROVER_DISCONNECTED: the Midnight wallet proving UI disconnected before authorization submission. Keep the wallet approval UI open and retry; an existing payroll contract deployment will be reused.'
+      : rawMessage;
+    callbacks?.onStage?.('FAILED', message);
+    throw new Error(message);
   }
 }
